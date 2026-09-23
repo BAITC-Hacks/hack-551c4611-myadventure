@@ -24,6 +24,8 @@ ollama pull qwen3:4b
 4. Whisper: выполнить Python snapshot_download из speech/README.md в speech/models/large-v3-turbo. Требуются все пять перечисленных файлов, закреплённая там revision.
 5. Pyannote: получить разрешённый полный offline bundle community-1 по speech/DIARIZATION.md и положить в speech/models/community-1. Владелец аккаунта самостоятельно принимает условия доступа модели на Hugging Face. Нужны реальные веса, а не Git LFS pointer-файлы. Для декодера pyannote могут потребоваться совместимые TorchCodec/FFmpeg shared libraries.
 
+На Windows для pyannote нужен FFmpeg shared build с DLL: одного ffmpeg.exe недостаточно. Задайте JINALYS_FFMPEG_DIR равным полному пути к его каталогу bin. Worker добавляет каталог DLL до импорта pyannote. Подробности и проверенный участником №1 набор зависимостей: [speech handoff](handoff/speech.md).
+
 Модель pyannote нельзя заменять demo-диаризацией при проверке реальной цепочки. Не выдавать результаты без модели за распознавание.
 
 ## Этап 3 — запустить job server
@@ -35,6 +37,8 @@ $env:LOCAL_LLM_TIMEOUT='600'
 $env:JINALYS_STT_MODEL_DIR=(Resolve-Path speech/models/large-v3-turbo).Path
 $env:JINALYS_DIARIZATION_MODEL_DIR=(Resolve-Path speech/models/community-1).Path
 $env:JINALYS_DIARIZATION_PYTHON=(Resolve-Path speech/.venv-diarization/Scripts/python.exe).Path
+# Windows: замените пример на путь к вашему полному FFmpeg shared bundle.
+$env:JINALYS_FFMPEG_DIR=(Resolve-Path 'C:/tools/ffmpeg-shared/bin').Path
 $env:HF_HUB_OFFLINE='1'
 $env:HF_HUB_DISABLE_TELEMETRY='1'
 .venv/Scripts/python -m integration.server

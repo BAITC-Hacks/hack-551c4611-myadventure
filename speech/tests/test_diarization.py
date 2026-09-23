@@ -233,6 +233,23 @@ class DiarizationTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output.getvalue()), [{"speaker": "cluster", "start": 0, "end": 1}])
 
+    def test_worker_adds_configured_ffmpeg_dll_directory(self) -> None:
+        self.backend()
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as ffmpeg_dir:
+            environment = {"JINALYS_FFMPEG_DIR": ffmpeg_dir}
+            with (
+                patch.dict(os.environ, environment, clear=True),
+                patch("speech._diarization_worker.os.add_dll_directory", create=True) as add_dll_directory,
+                patch("speech._diarization_worker.importlib.import_module") as importer,
+            ):
+                importer.return_value.Pipeline.from_pretrained.return_value.return_value.speaker_diarization.itertracks.return_value = []
+                with redirect_stdout(output):
+                    code = run(self.root, self.audio.path, None)
+            add_dll_directory.assert_called_once_with(str(Path(ffmpeg_dir).resolve()))
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output.getvalue()), [])
+
     def test_worker_load_and_inference_failures(self) -> None:
         self.backend()
         with patch.dict(os.environ), patch("speech._diarization_worker.importlib.import_module", side_effect=ImportError("not installed")), redirect_stderr(io.StringIO()):

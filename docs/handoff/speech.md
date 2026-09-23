@@ -61,14 +61,19 @@ Runtime STT:
 python -m pip install -r speech/requirements-stt.txt
 ```
 
-Необязательный real diarization worker устанавливается отдельно, чтобы тяжёлые
-зависимости pyannote не конфликтовали с основным процессом:
+Real diarization worker устанавливается отдельно, чтобы тяжёлые зависимости
+pyannote не конфликтовали с основным процессом. На Windows проверенная версия
+Python — 3.12.5:
 
 ```powershell
-py -3 -m venv speech/.venv-diarization
+py -3.12 -m venv speech/.venv-diarization
 & speech/.venv-diarization/Scripts/python.exe -m pip install --upgrade pip
 & speech/.venv-diarization/Scripts/python.exe -m pip install -r speech/requirements-diarization.txt
+& speech/.venv-diarization/Scripts/python.exe -c "import pyannote.audio, torch, torchcodec; print(pyannote.audio.__version__, torch.__version__, torchcodec.__version__)"
 ```
+
+Если Python 3.12 установлен в другом месте, замените только путь к его
+`python.exe`. Не используйте основной STT environment для pyannote.
 
 Инструменты разработки и зависимости проверки контракта:
 
@@ -83,14 +88,18 @@ npm ci --prefix contracts/speech
 
 ## System Dependencies
 
-- Python 3.11 или новее.
+- Python 3.11 или новее для основного pipeline; Python 3.12 рекомендуется для
+  отдельного Windows diarization worker.
 - Node.js и npm нужны только для schema/type tests и интеграции TypeScript-контракта.
 - Для PCM WAV, MP3 и `faster-whisper` отдельный FFmpeg executable не нужен:
   pinned PyAV декодирует и преобразует звук в mono 16 kHz внутри процесса.
 - Git LFS нужен только для официального offline clone gated модели
   `pyannote/speaker-diarization-community-1`.
-- Реальный pyannote worker может потребовать совместимые TorchCodec/FFmpeg shared
-  libraries. В текущем окружении этот путь не проверен. DEMO и STT от них не зависят.
+- Реальный pyannote worker на Windows требует FFmpeg 4–9 **shared** build с
+  `avcodec-*.dll`, `avformat-*.dll` и остальными DLL. Одного статического
+  `ffmpeg.exe` недостаточно. Проверен FFmpeg 8.1.3 LGPL shared с TorchCodec 0.16.0.
+  Укажите каталог `bin` через `JINALYS_FFMPEG_DIR`; worker добавит его через
+  `os.add_dll_directory` до импорта pyannote. DEMO и STT от FFmpeg shared не зависят.
 - Проверенная STT-модель занимает примерно 1.6 GB на диске; измеренный working
   set CPU worker после inference — около 0.96 GB. Публичный pipeline использует
   CPU int8 и не занимает общую RTX 4060 Laptop 8 GB, оставляя её Ollama/Qwen3 4B.
@@ -103,6 +112,7 @@ npm ci --prefix contracts/speech
 | `JINALYS_STT_MODEL_DIR` | Да | Полный путь к локальному CTranslate2 STT bundle. |
 | `JINALYS_DIARIZATION_MODEL_DIR` | Для real diarization | Полный путь к локальному `community-1` bundle с `config.yaml`. |
 | `JINALYS_DIARIZATION_PYTHON` | Если pyannote в отдельном venv | Python executable diarization worker. Без него используется текущий Python. |
+| `JINALYS_FFMPEG_DIR` | Windows real diarization | Каталог `bin` полного FFmpeg shared build с `ffmpeg.exe` и `av*.dll`. |
 | `HF_HUB_OFFLINE=1` | Рекомендуется | Запрещает Hugging Face Hub искать файлы в сети во время runtime. |
 | `HF_HUB_DISABLE_TELEMETRY=1` | Рекомендуется | Отключает telemetry Hub-библиотек. |
 
@@ -144,21 +154,35 @@ Runtime проверяет наличие всех пяти файлов до з
 
 ### Diarization
 
-`community-1` является gated-моделью. На provisioning-машине сначала примите
-условия доступа к `pyannote/speaker-diarization-community-1`. Затем выполните
-официальный offline clone, используя Hugging Face access token только как пароль
-при запросе Git. Не сохраняйте токен в repository или runtime environment.
+`community-1` является gated-моделью. Владелец Hugging Face account должен открыть
+`https://huggingface.co/pyannote/speaker-diarization-community-1`, принять условия
+доступа и создать fine-grained read token с доступом к gated model. Затем выполните
+официальный offline clone. При запросе Git введите Hugging Face username, а token —
+только как пароль. Не вставляйте token в URL, `.env`, команды, документацию или Git.
 
 ```powershell
 git lfs install
 New-Item -ItemType Directory -Force speech/models | Out-Null
 git clone https://hf.co/pyannote/speaker-diarization-community-1 speech/models/community-1
+git -C speech/models/community-1 lfs pull
+```
+
+Clone `community-1` содержит pipeline и все зависимые веса для его offline path.
+Проверьте, что LFS действительно заменил pointer-файлы большими бинарными файлами:
+
+```powershell
+Test-Path speech/models/community-1/config.yaml
+git -C speech/models/community-1 lfs ls-files
 ```
 
 Передайте полный bundle в закрытое runtime-окружение. Во время inference worker
 загружает только локальный путь с `token=False`; сетевой diarization API не
-используется. До реальной интеграции проверьте bundle и native audio dependencies
-на целевой машине.
+используется. После clone Hugging Face token для runtime не нужен.
+
+На Windows установите FFmpeg full-shared 4–9. Например, распакуйте Windows x64
+LGPL shared archive из `BtbN/FFmpeg-Builds` в локальный каталог вне Git и сохраните
+полный путь к его `bin`. Каталог должен содержать одновременно `ffmpeg.exe` и
+`avcodec-*.dll`.
 
 ## Run
 
@@ -194,21 +218,32 @@ except PipelineError as error:
 ```powershell
 $env:JINALYS_DIARIZATION_MODEL_DIR = (Resolve-Path speech/models/community-1).Path
 $env:JINALYS_DIARIZATION_PYTHON = (Resolve-Path speech/.venv-diarization/Scripts/python.exe).Path
+$env:JINALYS_FFMPEG_DIR = (Resolve-Path "C:/path/to/ffmpeg-shared/bin").Path
+$env:HF_HUB_OFFLINE = "1"
+$env:HF_HUB_DISABLE_TELEMETRY = "1"
+$mp3 = (Resolve-Path "C:/path/to/meeting.mp3").Path
+$env:JINALYS_TEST_MP3 = $mp3
 @'
 import json
+import os
 from speech import PipelineError, processMeetingAudio
 
 try:
-    print(json.dumps(
-        processMeetingAudio("speech/tests/fixtures/ru.wav"),
-        ensure_ascii=False,
-        indent=2,
-    ))
+    result = processMeetingAudio(os.environ["JINALYS_TEST_MP3"], mode="local")
+    assert set(result) == {"durationSeconds", "detectedSpeakers", "segments"}
+    assert result["durationSeconds"] >= 0
+    assert result["detectedSpeakers"] >= 1
+    assert all(s["id"] and s["speakerId"] and s["start"] >= 0 and s["end"] >= s["start"] for s in result["segments"])
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 except PipelineError as error:
     print(error.stage, error.code, str(error))
     raise
 '@ | python -
 ```
+
+Повторите последнюю команду для второго MP3, изменив только `$mp3`. Значения
+`SPEAKER_00`, `SPEAKER_01` и далее обозначают анонимные кластеры голосов внутри
+одной записи и не устанавливают личность человека.
 
 ## Public Entry Point
 
