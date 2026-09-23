@@ -1,0 +1,49 @@
+{
+  "status": "PASS",
+  "audio": "speech/tests/fixtures/ru.wav",
+  "modelDirectory": "speech/models/large-v3-turbo",
+  "runs": [
+    {
+      "run": 1,
+      "status": "PASS",
+      "elapsedSeconds": 17.637,
+      "workingSetBytes": 959438848,
+      "cache": {
+        "hits": 0,
+        "misses": 1,
+        "size": 1
+      },
+      "segments": 2,
+      "diagnosticsCompleted": true
+    },
+    {
+      "run": 2,
+      "status": "PASS",
+      "elapsedSeconds": 14.49,
+      "workingSetBytes": 956514304,
+      "cache": {
+        "hits": 1,
+        "misses": 1,
+        "size": 1
+      },
+      "segments": 2,
+      "diagnosticsCompleted": true
+    }
+  ],
+  "checks": {
+    "run1": true,
+    "run2": true,
+    "modelInitializedOnce": true,
+    "modelFilesUnchanged": true,
+    "audioUnchanged": true,
+    "noTemporaryFilesCreated": true,
+    "outputStructureEqual": true,
+    "outputEqual": true,
+    "secondRunMemoryGrowthWithinLimit": true,
+    "networkBlockedDuringRuns": true
+  },
+  "memoryGrowthBytesRun2VsRun1": -2924544,
+  "memoryGrowthLimitBytes": 268435456,
+  "temporaryFiles": [],
+  "note": "Two-run RSS check detects large growth but cannot prove absence of every long-run native leak."
+}
