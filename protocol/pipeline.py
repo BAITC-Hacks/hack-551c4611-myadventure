@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 
 from .deadlines import normalize_deadline
 from .llm import LocalLLM
@@ -36,13 +37,79 @@ def ask(llm, instructions, data, schema):
     return result
 
 
+MAX_TRANSCRIPT_CHARS = 120000
+MAX_MEETING_SECONDS = 1800
+CHUNK_CHARS = 6000
+
+
+def transcript_chunks(transcript):
+    """Bound serialized input, retaining a short overlap for boundary assignments."""
+    chunks, current = [], []
+    def size(segments):
+        return len(json.dumps(segments, ensure_ascii=False))
+    for segment in transcript:
+        if size([segment]) > CHUNK_CHARS:
+            raise ProtocolError("A transcript segment exceeds 6000 serialized characters; speech must split long utterances")
+        if current and size(current + [segment]) > CHUNK_CHARS:
+            chunks.append(current)
+            overlap = current[-2:]
+            while overlap and size(overlap + [segment]) > CHUNK_CHARS:
+                overlap = overlap[1:]
+            current = overlap
+        current = current + [segment]
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 def generate_meeting_protocol(transcript, metadata=None, *, llm=None, on_progress=None):
     metadata = {} if metadata is None else deepcopy(metadata)
     transcript = deepcopy(transcript)
     validate_input(transcript, metadata)
-    # Fail explicitly rather than silently truncate a meeting.
-    if sum(len(s["text"]) for s in transcript) > 24000:
-        raise ProtocolError("MVP transcript limit is 24000 characters; split the meeting explicitly")
+    if len(transcript) > 5000 or sum(len(s["text"]) for s in transcript) > MAX_TRANSCRIPT_CHARS:
+        raise ProtocolError("Transcript limit: 120000 characters and 5000 segments")
+    if max(s["end"] for s in transcript) > MAX_MEETING_SECONDS:
+        raise ProtocolError("Meeting duration exceeds 30 minutes (1800 seconds)")
+    chunks = transcript_chunks(transcript)
+    llm = llm or LocalLLM()
+    progress = on_progress or (lambda stage: None)
+    if len(chunks) == 1:
+        return _generate_chunk(transcript, metadata, llm=llm, on_progress=progress)
+    results = []
+    for index, chunk in enumerate(chunks, 1):
+        progress(f"chunk:{index}/{len(chunks)}")
+        results.append(_generate_chunk(chunk, metadata, llm=llm,
+                       on_progress=lambda stage: progress(stage) if stage != "done" else None))
+    actions, summaries, topics = [], [], []
+    seen_actions, seen_summaries, seen_topics = set(), set(), set()
+    for result in results:
+        for action in result["actionItems"]:
+            key = (action["task"].casefold().strip(), action["assignee"],
+                   action["deadlineText"], tuple(sorted(action["sourceSegmentIds"])))
+            if key not in seen_actions:
+                seen_actions.add(key)
+                action["id"] = f"action-{len(actions) + 1}"
+                actions.append(action)
+        for line in result["summary"].splitlines():
+            if line not in seen_summaries:
+                seen_summaries.add(line)
+                summaries.append(line)
+        for topic in result["topics"]:
+            key = (topic["title"], topic["summary"])
+            if key not in seen_topics:
+                seen_topics.add(key)
+                topics.append(topic)
+    result = {"title": results[0]["title"], "transcript": transcript,
+              "summary": "\n".join(summaries), "topics": topics, "actionItems": actions}
+    validate_output(result)
+    progress("done")
+    return result
+
+
+def _generate_chunk(transcript, metadata=None, *, llm=None, on_progress=None):
+    metadata = {} if metadata is None else deepcopy(metadata)
+    transcript = deepcopy(transcript)
+    validate_input(transcript, metadata)
     llm = llm or LocalLLM()
     progress = on_progress or (lambda stage: None)
     progress("extracting")
