@@ -115,6 +115,18 @@ class PipelineTests(unittest.TestCase):
             processMeetingAudio(FIXTURE.parent / "missing", diagnostics=diagnostics)
         self.assertFalse(diagnostics.completed)
 
+    def test_explicit_demo_turn_duration(self) -> None:
+        with patch("speech.pipeline.transcribeAudio", return_value=[
+            {"start": 0, "end": 2, "text": "Добрый день."},
+            {"start": 8, "end": 10, "text": "Спасибо, коллеги."},
+        ]):
+            result = processMeetingAudio(FIXTURE, mode="demo", demo_speakers=2, demo_turn_seconds=7, diagnostics=PipelineDiagnostics())
+        self.assertEqual(result["detectedSpeakers"], 2)
+        with patch("speech.pipeline.transcribeAudio") as stt:
+            with self.assertRaises(PipelineError):
+                processMeetingAudio(FIXTURE, mode="demo", demo_turn_seconds=0, diagnostics=PipelineDiagnostics())
+            stt.assert_not_called()
+
 
 @unittest.skipUnless(os.environ.get("JINALYS_STT_MODEL_DIR"), "Real local STT weights not configured")
 class PipelineEndToEndTests(unittest.TestCase):

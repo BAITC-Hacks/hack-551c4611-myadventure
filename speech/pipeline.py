@@ -1,5 +1,6 @@
 """Model-independent public entry point for meeting transcription."""
 
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Literal
@@ -33,6 +34,7 @@ class PipelineDiagnostics:
 def processMeetingAudio(
     file: str | os.PathLike[str], *, mode: Literal["local", "demo"] = "local",
     diagnostics: PipelineDiagnostics | None = None, demo_speakers: int = 1,
+    demo_turn_seconds: float = 5.0,
 ) -> SpeechPipelineResult:
     """Prepare → local STT → diarize → align/mark language → public JSON.
 
@@ -53,8 +55,10 @@ def processMeetingAudio(
             raise PipelineError(stage, "DEMO_REQUIRES_DIAGNOSTICS", "DEMO requires PipelineDiagnostics; preserve its mode/warnings in job state.")
         if isinstance(demo_speakers, bool) or not isinstance(demo_speakers, int) or demo_speakers < 1:
             raise PipelineError(stage, "INVALID_CONFIG", "demo_speakers must be a positive integer.")
-        if mode == "local" and demo_speakers != 1:
-            raise PipelineError(stage, "INVALID_CONFIG", "demo_speakers requires explicit mode='demo'.")
+        if not math.isfinite(demo_turn_seconds) or demo_turn_seconds <= 0:
+            raise PipelineError(stage, "INVALID_CONFIG", "demo_turn_seconds must be finite and positive.")
+        if mode == "local" and (demo_speakers != 1 or demo_turn_seconds != 5.0):
+            raise PipelineError(stage, "INVALID_CONFIG", "DEMO options require explicit mode='demo'.")
         if mode == "demo" and diagnostics is not None:
             diagnostics.warnings.append("DEMO: diarization uses simulated speaker turns, not detected voices. STT remains local AI.")
         stage = "preprocessing"
@@ -62,7 +66,7 @@ def processMeetingAudio(
         stage = "stt"
         transcript = transcribeAudio(prepared)
         stage = "diarization"
-        speakers = diarizeAudio(prepared, mode=mode, demo_speakers=demo_speakers)
+        speakers = diarizeAudio(prepared, mode=mode, demo_speakers=demo_speakers, demo_turn_seconds=demo_turn_seconds)
         stage = "alignment"
         aligned = alignTranscript(transcript, speakers, duration_seconds=prepared.duration_seconds)
         if diagnostics is not None:

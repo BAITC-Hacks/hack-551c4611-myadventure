@@ -58,6 +58,10 @@ speaker matching and unknown-speaker notices. Reused diagnostics are reset at
 the start of each call and only marked completed on success. Use one holder per
 concurrent job. Normal callers can optionally collect the same diagnostics.
 
+For known synthetic fixture timing, `demo_turn_seconds` configures the simulated
+turn duration (default 5 seconds). It is not inferred from audio. Non-default
+demo options require explicit DEMO mode and do not affect local-model inference.
+
 ## End-to-end verification
 
 `speech/tests/test_pipeline.py` includes actual WAV → preprocessing → local

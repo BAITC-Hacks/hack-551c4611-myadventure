@@ -1,0 +1,2 @@
+# Preserve exact fixture bytes/hashes, including the text-based invalid WAV.
+*.wav binary
