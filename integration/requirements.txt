@@ -1,0 +1,3 @@
+-r ../speech/requirements-stt.txt
+-r ../protocol/requirements.txt
+tzdata>=2025.2
