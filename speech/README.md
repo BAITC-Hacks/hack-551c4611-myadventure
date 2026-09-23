@@ -113,3 +113,12 @@ local pyannote backend. Without its separately provisioned model it returns a
 controlled error. `mode="demo"` explicitly enables deterministic simulation,
 marked `DEMO` with a warning in the result. See `DIARIZATION.md` for examples,
 offline setup and the distinction between adapter tests and real-model evaluation.
+
+## Speaker/transcript alignment
+
+`alignTranscript(transcript, diarization, duration_seconds=...)` assigns speaker
+IDs by maximum timestamp overlap and returns an internal `AlignmentResult`.
+Its `.result` is the exact public `SpeechPipelineResult` JSON; DEMO provenance and
+warnings stay outside that JSON. See `ALIGNMENT.md` for boundary/empty-input rules
+and schema validation. The alignment schema test needs `npm ci --prefix
+contracts/speech` in addition to the Python test tools listed above.
