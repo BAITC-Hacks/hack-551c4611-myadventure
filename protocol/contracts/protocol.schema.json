@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jinalys:protocol:v1",
+  "title": "MeetingProtocol",
+  "$ref": "#/$defs/MeetingProtocol",
+  "$defs": {
+    "TranscriptSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "speakerId", "start", "end", "text"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "speakerId": { "type": "string", "minLength": 1 },
+        "speakerName": { "type": "string", "minLength": 1 },
+        "start": { "type": "number", "minimum": 0 },
+        "end": { "type": "number", "minimum": 0 },
+        "text": { "type": "string", "minLength": 1 },
+        "language": { "enum": ["ru", "kk", "mixed"] }
+      }
+    },
+    "Metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "meetingDate": { "type": ["string", "null"], "format": "date" },
+        "timeZone": { "type": ["string", "null"] }
+      }
+    },
+    "ProtocolInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transcript", "metadata"],
+      "properties": {
+        "transcript": {
+          "type": "array", "minItems": 1,
+          "items": { "$ref": "#/$defs/TranscriptSegment" }
+        },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "ActionItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "task", "assignee", "deadlineText", "deadline", "sourceSegmentIds", "confidence", "needsReview"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "assignee": { "type": ["string", "null"], "minLength": 1 },
+        "deadlineText": { "type": ["string", "null"], "minLength": 1 },
+        "deadline": { "type": ["string", "null"], "format": "date" },
+        "assignedBy": { "type": ["string", "null"], "minLength": 1 },
+        "sourceSegmentIds": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "needsReview": { "type": "boolean" }
+      }
+    },
+    "MeetingProtocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "transcript", "summary", "topics", "actionItems"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "transcript": {
+          "type": "array", "minItems": 1,
+          "items": { "$ref": "#/$defs/TranscriptSegment" }
+        },
+        "summary": { "type": "string" },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["title", "summary"],
+            "properties": {
+              "title": { "type": "string", "minLength": 1 },
+              "summary": { "type": "string" }
+            }
+          }
+        },
+        "actionItems": { "type": "array", "items": { "$ref": "#/$defs/ActionItem" } }
+      }
+    }
+  }
+}

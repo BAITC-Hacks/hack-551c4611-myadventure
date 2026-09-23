@@ -1,0 +1,16 @@
+{
+  "metadata": {
+    "title": "Проверка извлечения поручений — синтетический пример",
+    "meetingDate": null,
+    "timeZone": null
+  },
+  "transcript": [
+    { "id": "seg-1", "speakerId": "SPEAKER_00", "start": 0, "end": 5, "text": "Коллеги, обсудим отчёт и график работ.", "language": "ru" },
+    { "id": "seg-2", "speakerId": "SPEAKER_00", "start": 5, "end": 12, "text": "Ерболат, подготовьте отчёт до 15 октября 2026 года.", "language": "ru" },
+    { "id": "seg-3", "speakerId": "SPEAKER_01", "start": 12, "end": 16, "text": "Можно было бы когда-нибудь автоматизировать рассылку.", "language": "ru" },
+    { "id": "seg-4", "speakerId": "SPEAKER_00", "start": 16, "end": 22, "text": "Салтанат, проверьте список подрядчиков.", "language": "ru" },
+    { "id": "seg-5", "speakerId": "SPEAKER_00", "start": 22, "end": 30, "text": "Асқар, осы аптада подрядчикпен сөйлесіп, новый график жасап беріңіз.", "language": "mixed" },
+    { "id": "seg-6", "speakerId": "SPEAKER_00", "start": 30, "end": 36, "text": "Айгүл, жиналыс хаттамасын дайындаңыз.", "language": "kk" },
+    { "id": "seg-7", "speakerId": "SPEAKER_00", "start": 36, "end": 42, "text": "Подготовьте также перечень рисков до 16 октября 2026 года. Ответственного определим позже.", "language": "ru" }
+  ]
+}
