@@ -60,6 +60,23 @@ class PipelineTests(unittest.TestCase):
         self.assertIsNone(item["assignee"])
         self.assertTrue(item["needsReview"])
 
+    def test_placeholder_removed_even_when_verifier_accepts(self):
+        for name in ('null', 'UNKNOWN', FIXTURE['transcript'][0]['speakerId']):
+            item = self.run_pipeline([action(assignee=name, assignedBy=name)])["actionItems"][0]
+            self.assertIsNone(item['assignee'])
+            self.assertIsNone(item['assignedBy'])
+            self.assertTrue(item['needsReview'])
+            self.assertLessEqual(item['confidence'], 0.5)
+
+    def test_acknowledgement_discarded_before_verification(self):
+        result = self.run_pipeline([action(task='Хорошо, сделаю.')], verdicts=[])
+        self.assertEqual(result['actionItems'], [])
+
+    def test_uncited_person_removed_even_when_model_accepts(self):
+        item = self.run_pipeline([action(assignee='Несуществующий Исполнитель')])['actionItems'][0]
+        self.assertIsNone(item['assignee'])
+        self.assertTrue(item['needsReview'])
+
     def test_idea_rejected(self):
         verdict = {key: True for key in VERDICT["properties"]}
         verdict["isAction"] = False
