@@ -4,6 +4,7 @@ from .alignment import AlignmentError, AlignmentResult, SpeechPipelineResult, Tr
 from .audio import AudioPreparationError, PreparedAudio, prepareAudio
 from .diarization import DiarizationError, DiarizationResult, DiarizationSegment, PyannoteLocalBackend, diarizeAudio
 from .language import detectSegmentLanguage
+from .pipeline import PipelineDiagnostics, PipelineError, processMeetingAudio
 from .stt import TranscriptionError, TranscriptionSegment, transcribeAudio
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "DiarizationError", "DiarizationResult", "DiarizationSegment", "PyannoteLocalBackend", "diarizeAudio",
     "AlignmentError", "AlignmentResult", "SpeechPipelineResult", "TranscriptSegment", "alignTranscript",
     "detectSegmentLanguage",
+    "PipelineDiagnostics", "PipelineError", "processMeetingAudio",
 ]

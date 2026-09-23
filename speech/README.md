@@ -1,5 +1,10 @@
 # Local audio preparation
 
+For application integration, use `processMeetingAudio(file)` from `speech`.
+It hides preprocessing, model inference, speaker alignment and language marking
+behind the existing `SpeechPipelineResult`. See `PIPELINE.md` for the public API,
+error handling, deployment configuration and explicitly marked DEMO support.
+
 Requires Python 3.11+. Runtime uses only the standard library.
 
 ```python
