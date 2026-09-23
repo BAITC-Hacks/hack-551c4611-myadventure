@@ -4,3 +4,7 @@ out/
 .env*
 !.env.example
 *.tsbuildinfo
+
+.venv/
+__pycache__/
+*.pyc
