@@ -1,0 +1,21 @@
+{
+  "name": "@jinalys/speech-contract",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./schema.json": "./schema.json"
+  },
+  "scripts": {
+    "test": "node --test tests/schema.test.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "ajv": "8.17.1",
+    "eslint": "9.39.1",
+    "typescript": "5.9.3"
+  }
+}
