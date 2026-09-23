@@ -11,11 +11,28 @@ export function validateAudio(file: {name:string;size:number}): string | null {
  if (file.size > MAX_AUDIO_BYTES) return 'Файл көлемі 400 МБ-тан аспауы керек.';
  return null;
 }
-export async function processAudio(file: File, signal: AbortSignal): Promise<MeetingProtocol> {
- const body = new FormData(); body.append('audio',file);
- const response = await fetch('/api/meetings',{method:'POST',body,signal});
- if (!response.ok) { if (response.status===404 || response.status===503) throw new Error('Аудио өңдеу модулі әлі қосылмаған. Демо үлгісін ашуға болады.'); throw new Error('Аудионы өңдеу мүмкін болмады. Қайта көріңіз.'); }
- const parsed = protocolSchema.safeParse(await response.json());
- if (!parsed.success) throw new Error('Сервер жауабы келісілген форматқа сәйкес келмейді.');
- return parsed.data;
+
+export type MeetingMetadata = {title?:string;meetingDate?:string;timeZone?:string};
+export type JobProgress = {jobId:string;status:string;stage:string};
+const jobSchema=z.object({jobId:z.string().uuid(),status:z.enum(['uploading','queued','running','completed','failed']),stage:z.string(),result:protocolSchema.optional(),warnings:z.array(z.string()).optional(),error:z.object({code:z.string(),message:z.string()}).optional()});
+async function responseJson(response:Response) {
+ const data=await response.json();
+ if(!response.ok)throw new Error(data.error?.message??'Сервер қатесі. Кейін қайта көріңіз.');
+ return data;
+}
+export async function waitForJob(jobId:string, signal:AbortSignal, onProgress:(p:JobProgress)=>void):Promise<MeetingProtocol> {
+ while(!signal.aborted){
+  const response=await fetch('/api/meetings?jobId='+encodeURIComponent(jobId),{signal,cache:'no-store'});
+  const job=jobSchema.parse(await responseJson(response));onProgress(job);
+  if(job.status==='failed')throw new Error(job.error?.code+': '+job.error?.message);
+  if(job.status==='completed'){if(!job.result)throw new Error('Нәтиже жоқ.');return job.result;}
+  await new Promise<void>((resolve,reject)=>{const abort=()=>{clearTimeout(timer);reject(new DOMException('Aborted','AbortError'));};const timer=setTimeout(()=>{signal.removeEventListener('abort',abort);resolve();},1500);signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();});
+ }
+ throw new DOMException('Aborted','AbortError');
+}
+export async function processAudio(file:File,signal:AbortSignal,metadata:MeetingMetadata={},onProgress:(p:JobProgress)=>void=()=>{}):Promise<MeetingProtocol>{
+ const bytes=new TextEncoder().encode(JSON.stringify(metadata));const encoded=btoa(Array.from(bytes,b=>String.fromCharCode(b)).join(''));
+ const response=await fetch('/api/meetings',{method:'POST',body:file,signal,headers:{'content-type':'application/octet-stream','x-audio-format':file.name.split('.').pop()!.toLowerCase(),'x-meeting-metadata':encoded}});
+ const {jobId}=z.object({jobId:z.string().uuid()}).parse(await responseJson(response));onProgress({jobId,status:'queued',stage:'queued'});
+ return waitForJob(jobId,signal,onProgress);
 }
