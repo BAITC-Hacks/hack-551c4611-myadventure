@@ -98,6 +98,8 @@ def run_fixture_suite(mode: Literal["local", "demo"], directory: Path = FIXTURES
             for segment in segments:
                 if not segment["id"] or not segment["speakerId"] or not 0 <= segment["start"] <= segment["end"] <= result["durationSeconds"]:
                     raise ValueError("Invalid segment identity or timestamps")
+                if len(json.dumps(segment, ensure_ascii=False, separators=(",", ":"))) > 6000:
+                    raise ValueError("Transcript segment JSON exceeds the protocol AI limit")
             text = " ".join(s["text"] for s in segments).casefold()
             if not all(keyword in text for keyword in case.keywords):
                 raise ValueError("Expected source-language words were not retained")

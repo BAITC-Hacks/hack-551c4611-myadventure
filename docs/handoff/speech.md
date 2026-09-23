@@ -31,7 +31,8 @@ Audio
 
 - Python 3.11+ и стандартная библиотека для preprocessing, orchestration,
   alignment и определения языка.
-- `faster-whisper==1.2.1` с CTranslate2 и PyAV для локального multilingual STT.
+- `faster-whisper==1.2.1` с CTranslate2 и `av==18.1.0` для локального
+  multilingual STT и проверки MP3.
 - Silero VAD, который поставляется и вызывается через `faster-whisper`.
 - `pyannote.audio==4.0.7` для необязательного реального локального diarization
   backend в отдельном Python-процессе.
@@ -84,14 +85,16 @@ npm ci --prefix contracts/speech
 
 - Python 3.11 или новее.
 - Node.js и npm нужны только для schema/type tests и интеграции TypeScript-контракта.
-- Для принятого PCM WAV и `faster-whisper` отдельный FFmpeg executable не нужен:
-  PyAV декодирует и преобразует звук в mono 16 kHz внутри процесса.
+- Для PCM WAV, MP3 и `faster-whisper` отдельный FFmpeg executable не нужен:
+  pinned PyAV декодирует и преобразует звук в mono 16 kHz внутри процесса.
 - Git LFS нужен только для официального offline clone gated модели
   `pyannote/speaker-diarization-community-1`.
 - Реальный pyannote worker может потребовать совместимые TorchCodec/FFmpeg shared
   libraries. В текущем окружении этот путь не проверен. DEMO и STT от них не зависят.
-- Проверенная STT-модель занимает примерно 1.6 GB; CPU int8 является настройкой
-  по умолчанию. Для CUDA нужна совместимая локальная CUDA/cuDNN установка.
+- Проверенная STT-модель занимает примерно 1.6 GB на диске; измеренный working
+  set CPU worker после inference — около 0.96 GB. Публичный pipeline использует
+  CPU int8 и не занимает общую RTX 4060 Laptop 8 GB, оставляя её Ollama/Qwen3 4B.
+  Внутренний CUDA-режим не проверен совместно с Qwen3 и не используется интеграцией.
 
 ## Environment Variables
 
@@ -235,31 +238,39 @@ processMeetingAudio(
 ## Input
 
 - `str` или `os.PathLike[str]` существующего локального regular file.
-- Сейчас принимается только RIFF PCM WAV: 8/16/24/32-bit samples, минимум один
-  frame. MP3 возвращает `UNSUPPORTED_FORMAT`.
-- Максимальный размер по умолчанию — 500 MiB.
-- Проверяются расширение, RIFF/WAVE signature, container length, PCM-параметры и
-  полнота frames. Повреждённый файл возвращает контролируемую ошибку.
+- Принимаются RIFF PCM WAV (8/16/24/32-bit samples) и MPEG Layer III MP3.
+- Максимальный размер — 400 MiB; максимальная длительность — 1800 секунд.
+- Проверяются extension, фактический container/codec, параметры и полная
+  декодируемость. Файл длиннее 1800 секунд возвращает `DURATION_EXCEEDED` и не
+  обрезается. Повреждённый или подменённый файл даёт контролируемую ошибку.
 - Pipeline не изменяет и не удаляет source file. Caller должен сохранять файл до
   завершения вызова.
 
 ## Output
 
 Возвращается только `SpeechPipelineResult`; internal diagnostics в него не
-добавляются. `speakerName` и `language` являются необязательными полями.
+добавляются. `speakerName` и `language` являются необязательными полями. Ниже —
+фактический output локального STT для публичной RU-записи FLEURS; speaker label
+получен в явно отмеченном DEMO-режиме и не является AI diarization.
 
 ```json
 {
-  "durationSeconds": 12.3,
+  "durationSeconds": 13.68,
   "detectedSpeakers": 1,
   "segments": [
     {
       "id": "seg-1",
       "speakerId": "SPEAKER_00",
-      "start": 0.27,
-      "end": 11.49,
-      "text": "Ғалымдар жануарларды иісі арқылы тауып алады деп ойлайды.",
-      "language": "kk"
+      "start": 0.24,
+      "end": 6.26,
+      "text": "Они умеют отлично видеть в темноте при помощи ночного видения и почти незаметно передвигаться."
+    },
+    {
+      "id": "seg-2",
+      "speakerId": "SPEAKER_00",
+      "start": 6.78,
+      "end": 12.66,
+      "text": "Оцелоты выслеживают добычу, сливаясь с окружающей обстановкой, а затем набрасываются на добычу."
     }
   ]
 }
@@ -268,6 +279,13 @@ processMeetingAudio(
 Segment ID уникален внутри результата, timestamps выражены в секундах и
 отсортированы. `detectedSpeakers` не учитывает `SPEAKER_UNKNOWN`. При тишине
 `segments` может быть пустым, а `detectedSpeakers` — равным нулю.
+Каждый compact UTF-8 JSON segment короче либо равен 6000 символам. Если исходный
+model segment длиннее 800 символов, текст делится у предложения/пробела, части
+сохраняют speaker и исходные model start/end, а ID остаются уникальными во всём
+транскрипте. Точные промежуточные timestamps не выдумываются.
+Перед возвратом также проверяются общие лимиты AI-модуля: не более 120000
+символов исходного текста и 5000 segments. Аномальный вывод отклоняется как
+`PipelineError(stage="alignment", code="TRANSCRIPT_TOO_LARGE")`.
 
 ## Testing
 
@@ -292,11 +310,18 @@ $env:JINALYS_STT_MODEL_DIR = (Resolve-Path speech/models/large-v3-turbo).Path
 $env:HF_HUB_OFFLINE = "1"
 $env:HF_HUB_DISABLE_TELEMETRY = "1"
 python -m unittest discover -s speech/tests -v
+python -m unittest speech.tests.test_pipeline.PipelineEndToEndTests.test_real_mp3_real_stt_explicit_demo_diarization -v
 python -m speech.fixture_suite --mode demo --report "$env:TEMP/jinalys-speech-fixtures.json"
 ```
 
 Полностью model-based local E2E также требует
 `JINALYS_DIARIZATION_MODEL_DIR` и совместимый `JINALYS_DIARIZATION_PYTHON`.
+
+Измерение 2026-09-23: cold-start обработка публичного RU WAV длительностью 13.68
+секунды заняла 19.152 секунды на CPU int8, включая загрузку локальной STT-модели,
+полный pipeline и explicit DEMO diarization. Это одно измерение на текущем
+ноутбуке, не throughput-гарантия. Реальный MP3 того же публичного аудио также
+прошёл end-to-end; временный transcoded MP3 не коммитится.
 
 ## RU Test
 
@@ -369,7 +394,6 @@ provenance. DEMO нельзя представлять как определен
 
 ## Known Limitations
 
-- Input adapter принимает PCM WAV; MP3 пока не поддерживается.
 - Проверенная STT-модель требует около 1.6 GB веса и заметную RAM/CPU; accuracy на
   шумных совещаниях, дальнем микрофоне и перекрывающейся речи не измерялась.
 - Казахское распознавание проверено на одном публичном fixture и содержит ошибки;
@@ -385,12 +409,16 @@ provenance. DEMO нельзя представлять как определен
 - `speakerId` стабилен только внутри одного результата и не идентифицирует человека.
 - Два повторных запуска не показали накопления памяти, но длительный production
   soak test ещё не выполнялся.
+- Граница 1800 секунд и поручение на отметке 1792 секунды проверены synthetic
+  PCM-container test с injected STT/diarization output. Это проверка orchestration,
+  глобальных timestamps и отсутствия truncation, а не реальное 30-минутное STT
+  benchmark. Реальная 30-минутная встреча пока не измерялась.
 
 ## Integration Notes
 
 Developer 3 должен:
 
-1. Передать сохранённый локальный WAV path Python worker и вызвать только
+1. Передать сохранённый локальный WAV или MP3 path Python worker и вызвать только
    `speech.processMeetingAudio`.
 2. Catch `PipelineError`; отображать/логировать его `stage` и `code`, не разбирать
    текст сообщения как API.
@@ -409,3 +437,5 @@ Developer 3 должен:
    модель между запросами. Настройки модели не передаются через frontend.
 9. Для production local mode provision обе модели заранее, закрыть worker от
    outbound network и не передавать аудио, транскрипты или API keys наружу.
+10. Запускать speech worker в CPU int8 profile. RTX 4060 Laptop 8 GB остаётся
+    выделенной Ollama/Qwen3 4B; совместное размещение CUDA speech не сертифицировано.

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from speech import AlignmentError, AlignmentResult, alignTranscript
+from speech.alignment import MAX_TRANSCRIPT_SEGMENT_JSON_CHARS
 from speech.diarization import DiarizationResult, DiarizationSegment
 from speech.stt import TranscriptionSegment
 
@@ -88,6 +89,43 @@ class AlignmentTests(unittest.TestCase):
     def test_text_preserved_verbatim(self) -> None:
         text = "  Әріптестер, отчёт жұмаға дейін.\n"
         self.assertEqual(self.align(stt(1, 2, text)).result["segments"][0]["text"], text)
+
+    def test_long_segment_is_bounded_without_inventing_timestamps(self) -> None:
+        text = ("До пятницы подготовьте итоговый отчёт. " * 180).strip()
+        aligned = self.align(stt(1, 9, text))
+        segments = aligned.result["segments"]
+        self.assertGreater(len(segments), 1)
+        self.assertEqual("".join(segment["text"] for segment in segments), text)
+        self.assertEqual({segment["speakerId"] for segment in segments}, {"SPEAKER_01"})
+        self.assertEqual({(segment["start"], segment["end"]) for segment in segments}, {(1, 9)})
+        self.assertEqual([segment["id"] for segment in segments], [f"seg-{index}" for index in range(1, len(segments) + 1)])
+        self.assertTrue(all(
+            len(json.dumps(segment, ensure_ascii=False, separators=(",", ":")))
+            <= MAX_TRANSCRIPT_SEGMENT_JSON_CHARS
+            for segment in segments
+        ))
+        self.assertIn("no subsegment timestamps", " ".join(aligned.warnings))
+
+    def test_end_of_30_minute_recording_keeps_global_time(self) -> None:
+        task = "До конца дня отправьте подписанный договор."
+        speakers = diarization(
+            turn("SPEAKER_00", 0, 900), turn("SPEAKER_01", 900, 1800),
+        )
+        result = alignTranscript([stt(1792, 1799, task)], speakers, duration_seconds=1800).result
+        self.assertEqual(result["durationSeconds"], 1800)
+        self.assertEqual(result["segments"], [{
+            "id": "seg-1", "speakerId": "SPEAKER_01", "start": 1792,
+            "end": 1799, "text": task, "language": "ru",
+        }])
+
+    def test_protocol_ai_total_limits_are_controlled(self) -> None:
+        with self.assertRaises(AlignmentError) as characters:
+            self.align(stt(1, 2, "а" * 120_001))
+        self.assertEqual(characters.exception.code, "TRANSCRIPT_TOO_LARGE")
+        many = [stt(1, 2, "") for _ in range(5001)]
+        with self.assertRaises(AlignmentError) as segments:
+            alignTranscript(many, self.speakers, duration_seconds=10)
+        self.assertEqual(segments.exception.code, "TRANSCRIPT_TOO_LARGE")
 
     def test_demo_provenance_is_retained_outside_public_json(self) -> None:
         speakers = copy.deepcopy(self.speakers)

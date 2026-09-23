@@ -7,30 +7,29 @@ error handling, deployment configuration and explicitly marked DEMO support.
 Measured repeated-run behavior and the reproducible probe are documented in
 `STABILITY.md`.
 
-Requires Python 3.11+. Runtime uses only the standard library.
+Requires Python 3.11+. WAV validation uses the standard library; MP3 validation
+uses the pinned PyAV dependency from `requirements-stt.txt`.
 
 ```python
 from speech import AudioPreparationError, prepareAudio
 
 try:
-    audio = prepareAudio("meeting.wav", max_bytes=500 * 1024 * 1024)
+    audio = prepareAudio("meeting.wav")  # defaults: 400 MiB, 1800 seconds
     print(audio.duration_seconds, audio.sample_rate, audio.channels)
 except AudioPreparationError as error:
     print(error.code, str(error))
 ```
 
-Supports uncompressed PCM RIFF WAV (8/16/24/32-bit samples). Checks the file,
-byte limit, extension, signature, container length, audio parameters and complete
-sample data. Duration is computed from validated frames. Memory consumption is
-bounded while reading the payload. Python 3.12+ also accepts PCM WAVE_EXTENSIBLE
-through the standard library.
+Supports uncompressed PCM RIFF WAV (8/16/24/32-bit samples) and MPEG Layer III
+MP3. Checks the regular file, 400 MiB limit, extension against decoded format,
+audio parameters, complete decodability and duration. Files longer than 1800
+seconds are rejected with `DURATION_EXCEEDED` and are never silently truncated.
+Memory consumption is bounded while reading the payload. Python 3.12+ also accepts
+PCM WAVE_EXTENSIBLE through the standard library.
 
-The input validation interface currently accepts WAV only. MP3 produces
-`UNSUPPORTED_FORMAT`; the optional STT decoder does not expand the accepted
-input formats. No system FFmpeg dependency or cloud fallback is added.
-Resampling and mono conversion are deferred until an STT backend specifies its
-requirements in `prepareAudio`. The STT adapter below performs this conversion
-in memory. The source is never modified; no temporary files are created.
+PyAV comes from the local STT environment; no system FFmpeg executable, cloud
+decoder or temporary conversion file is used. The STT adapter performs mono
+16 kHz conversion in memory. The source is never modified or deleted.
 The returned path belongs to the caller, who must retain the file unchanged until
 downstream processing completes. This internal interface does not alter the
 external transcript contract in `contracts/speech`.
@@ -46,15 +45,16 @@ python -c "from speech import prepareAudio, PreparedAudio, AudioPreparationError
 ```
 
 Errors use stable codes: `INVALID_FILE`, `EMPTY_FILE`, `FILE_TOO_LARGE`,
-`UNSUPPORTED_FORMAT`, `CORRUPT_AUDIO`, `UNREADABLE_FILE`. Invalid limit configuration
-raises `ValueError`. This module needs no build step.
+`DURATION_EXCEEDED`, `UNSUPPORTED_FORMAT`, `CORRUPT_AUDIO`, `UNREADABLE_FILE`
+and `DECODER_UNAVAILABLE`. Invalid limit configuration raises `ValueError`.
 
 ## Local multilingual STT
 
 Install `python -m pip install -r speech/requirements-stt.txt` in the speech worker
 environment. `faster-whisper` uses CTranslate2 and bundled PyAV libraries; no
-system FFmpeg command is needed. CPU int8 is the default. CUDA is optional and
-requires a compatible local CUDA/cuDNN setup; it was not used in validation.
+system FFmpeg command is needed. The public pipeline uses CPU int8 so the shared
+RTX 4060 Laptop 8 GB remains available to Ollama/Qwen3. Direct internal CUDA use
+is not part of the supported integration profile.
 
 Provision weights separately from inference. Tested model:
 [large-v3-turbo CTranslate2 conversion](https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo),
@@ -102,9 +102,9 @@ sets `local_files_only=True` and `use_auth_token=False`, and caches one model.
 Missing assets produce `MODEL_MISSING`; corrupt/incompatible assets or missing
 dependencies produce `MODEL_LOADING_FAILED`; bad input produces `INVALID_AUDIO`;
 inference errors, including generator iteration, produce `INFERENCE_FAILED`.
-PyAV resamples validated WAV to mono 16 kHz in memory. Temporary audio is not
-created. The external transcript contract remains unchanged; speaker assignment
-is a later pipeline stage.
+PyAV resamples validated WAV or MP3 to mono 16 kHz in memory. Temporary audio is
+not created. The external transcript contract remains unchanged; speaker
+assignment is a later pipeline stage.
 
 Tests without weights exercise the adapter and controlled failures using doubles.
 To also run actual RU/KZ/mixed/silence inference, set `JINALYS_STT_MODEL_DIR` and
@@ -129,6 +129,9 @@ Its `.result` is the exact public `SpeechPipelineResult` JSON; DEMO provenance a
 warnings stay outside that JSON. See `ALIGNMENT.md` for boundary/empty-input rules
 and schema validation. The alignment schema test needs `npm ci --prefix
 contracts/speech` in addition to the Python test tools listed above.
+No public segment exceeds 6000 JSON characters. A model segment longer than 800
+source characters is split near sentence/word boundaries while every piece keeps
+the original model interval, so no false subsegment timestamps are invented.
 
 ## Optional segment language
 

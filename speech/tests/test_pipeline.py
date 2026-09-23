@@ -1,8 +1,11 @@
+import importlib
 import json
 import os
 import socket
 import subprocess
+import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest.mock import patch
 
@@ -127,6 +130,54 @@ class PipelineTests(unittest.TestCase):
                 processMeetingAudio(FIXTURE, mode="demo", demo_turn_seconds=0, diagnostics=PipelineDiagnostics())
             stt.assert_not_called()
 
+    def test_30_minute_audio_and_end_task_keep_global_timestamps(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "meeting.wav"
+            with wave.open(str(path), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(1)
+                output.writeframes(b"\0\0" * 1800)
+            task = "До конца дня отправьте подписанный договор."
+            with patch("speech.pipeline.transcribeAudio", return_value=[
+                {"start": 1792, "end": 1799, "text": task},
+            ]), patch("speech.pipeline.diarizeAudio", return_value={
+                "mode": "LOCAL",
+                "segments": [{"start": 0, "end": 1800, "speakerId": "SPEAKER_00"}],
+                "warning": None,
+            }):
+                result = processMeetingAudio(path)
+        self.assertEqual(result["durationSeconds"], 1800)
+        self.assertEqual(result["segments"][0]["start"], 1792)
+        self.assertEqual(result["segments"][0]["end"], 1799)
+        self.assertEqual(result["segments"][0]["text"], task)
+        validate_schema(result)
+
+    def test_over_30_minutes_is_rejected_before_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "too-long.wav"
+            with wave.open(str(path), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(1)
+                output.writeframes(b"\0\0" * 1801)
+            with patch("speech.pipeline.transcribeAudio") as stt, self.assertRaises(PipelineError) as caught:
+                processMeetingAudio(path)
+        stt.assert_not_called()
+        self.assertEqual((caught.exception.stage, caught.exception.code), ("preprocessing", "DURATION_EXCEEDED"))
+        self.assertIn("not truncated", str(caught.exception))
+
+    def test_protocol_ai_limit_error_is_exposed_at_public_boundary(self) -> None:
+        with patch("speech.pipeline.transcribeAudio", return_value=[
+            {"start": 0, "end": 1, "text": "а" * 120_001},
+        ]), patch("speech.pipeline.diarizeAudio", return_value={
+            "mode": "LOCAL",
+            "segments": [{"start": 0, "end": 2, "speakerId": "SPEAKER_00"}],
+            "warning": None,
+        }), self.assertRaises(PipelineError) as caught:
+            processMeetingAudio(FIXTURE)
+        self.assertEqual((caught.exception.stage, caught.exception.code), ("alignment", "TRANSCRIPT_TOO_LARGE"))
+
 
 @unittest.skipUnless(os.environ.get("JINALYS_STT_MODEL_DIR"), "Real local STT weights not configured")
 class PipelineEndToEndTests(unittest.TestCase):
@@ -145,6 +196,9 @@ class PipelineEndToEndTests(unittest.TestCase):
             self.assertGreaterEqual(item["start"], 0)
             self.assertGreaterEqual(item["end"], item["start"])
             self.assertIsInstance(item["text"], str)
+            self.assertLessEqual(
+                len(json.dumps(item, ensure_ascii=False, separators=(",", ":"))), 6000,
+            )
         validate_schema(result)
 
     def test_real_audio_real_stt_explicit_demo_diarization(self) -> None:
@@ -155,6 +209,28 @@ class PipelineEndToEndTests(unittest.TestCase):
         self.assertEqual(diagnostics.mode, "DEMO")
         self.assertTrue(diagnostics.completed)
         self.assertIn("DEMO", " ".join(diagnostics.warnings))
+        self.assertIn("ночного", " ".join(item["text"] for item in result["segments"]).lower())
+
+    def test_real_mp3_real_stt_explicit_demo_diarization(self) -> None:
+        module = importlib.import_module("av")
+        with tempfile.TemporaryDirectory() as folder:
+            mp3 = Path(folder) / "ru.mp3"
+            source = module.open(str(FIXTURE), "r")
+            target = module.open(str(mp3), "w")
+            stream = target.add_stream("mp3", rate=16000)
+            stream.layout = "mono"
+            for frame in source.decode(audio=0):
+                for packet in stream.encode(frame):
+                    target.mux(packet)
+            for packet in stream.encode():
+                target.mux(packet)
+            source.close()
+            target.close()
+            diagnostics = PipelineDiagnostics()
+            with patch.object(socket.socket, "connect", side_effect=AssertionError("Offline inference only")):
+                result = processMeetingAudio(mp3, mode="demo", diagnostics=diagnostics)
+        self.assert_output(result)
+        self.assertTrue(diagnostics.completed)
         self.assertIn("ночного", " ".join(item["text"] for item in result["segments"]).lower())
 
     @unittest.skipUnless(os.environ.get("JINALYS_DIARIZATION_MODEL_DIR"), "Real diarization bundle not configured")

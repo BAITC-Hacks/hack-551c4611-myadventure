@@ -1,6 +1,8 @@
 """Deterministic timestamp alignment; no model, network or text rewriting."""
 
+import json
 import math
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, NotRequired, TypedDict
@@ -8,6 +10,13 @@ from typing import Literal, NotRequired, TypedDict
 from .diarization import DiarizationResult, DiarizationSegment
 from .language import detectSegmentLanguage
 from .stt import TranscriptionSegment
+
+MAX_TRANSCRIPT_SEGMENT_JSON_CHARS = 6000
+MAX_TRANSCRIPT_CHARACTERS = 120_000
+MAX_TRANSCRIPT_SEGMENTS = 5000
+# Even if every character needs a six-character JSON escape, the full object
+# remains below the protocol AI limit. Normal RU/KZ JSON is much smaller.
+MAX_TRANSCRIPT_TEXT_CHARS = 800
 
 
 class TranscriptSegment(TypedDict):
@@ -39,7 +48,9 @@ class AlignmentResult:
 
 class AlignmentError(Exception):
     def __init__(
-        self, code: Literal["INVALID_TRANSCRIPT", "INVALID_DIARIZATION", "INVALID_DURATION"], message: str,
+        self, code: Literal[
+            "INVALID_TRANSCRIPT", "INVALID_DIARIZATION", "INVALID_DURATION", "TRANSCRIPT_TOO_LARGE",
+        ], message: str,
     ) -> None:
         self.code = code
         super().__init__(message)
@@ -74,6 +85,33 @@ def _match(
     return winner["speakerId"], nearest_only
 
 
+def _split_text(text: str) -> list[str]:
+    """Prefer sentence/word boundaries while preserving every source character."""
+    if len(text) <= MAX_TRANSCRIPT_TEXT_CHARS:
+        return [text]
+    result: list[str] = []
+    start = 0
+    while len(text) - start > MAX_TRANSCRIPT_TEXT_CHARS:
+        hard_end = start + MAX_TRANSCRIPT_TEXT_CHARS
+        window = text[start:hard_end]
+        sentence_ends = [match.end() for match in re.finditer(r"[.!?…][\"'»)]*\s+", window)]
+        preferred = sentence_ends[-1] if sentence_ends and sentence_ends[-1] >= MAX_TRANSCRIPT_TEXT_CHARS // 2 else -1
+        if preferred < 0:
+            whitespace = max(window.rfind(" "), window.rfind("\n"), window.rfind("\t"))
+            preferred = whitespace + 1 if whitespace >= MAX_TRANSCRIPT_TEXT_CHARS // 2 else len(window)
+        end = start + preferred
+        if end <= start:
+            end = hard_end
+        result.append(text[start:end])
+        start = end
+    result.append(text[start:])
+    return result
+
+
+def _json_length(segment: TranscriptSegment) -> int:
+    return len(json.dumps(segment, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+
+
 def alignTranscript(
     transcript: Sequence[TranscriptionSegment], diarization: DiarizationResult, *, duration_seconds: float,
 ) -> AlignmentResult:
@@ -82,7 +120,9 @@ def alignTranscript(
     Ties prefer midpoint containment (half-open speaker intervals), then distance,
     earlier intervals and lexical speaker ID. No-overlap segments use the nearest
     interval. Empty diarization uses SPEAKER_UNKNOWN, which is not a detected voice.
-    Source text and timestamps are preserved; no splitting or translation occurs.
+    Source text is never translated. Oversized model segments are split at a
+    nearby sentence/word boundary and retain the model segment's original time
+    bounds, avoiding invented subsegment timestamps.
     """
     if not _valid_time(duration_seconds):
         raise AlignmentError("INVALID_DURATION", "duration_seconds must be finite and nonnegative.")
@@ -92,6 +132,10 @@ def alignTranscript(
             or not _interval_valid(segment.get("start"), segment.get("end"), duration_seconds)
         ):
             raise AlignmentError("INVALID_TRANSCRIPT", "Each STT segment needs string text and 0 <= start <= end <= duration.")
+    if sum(len(segment["text"]) for segment in transcript) > MAX_TRANSCRIPT_CHARACTERS:
+        raise AlignmentError(
+            "TRANSCRIPT_TOO_LARGE", "Transcript exceeds the 120000-character protocol AI limit.",
+        )
     if (
         not isinstance(diarization, dict) or diarization.get("mode") not in ("LOCAL", "DEMO")
         or not isinstance(diarization.get("segments"), list)
@@ -114,24 +158,38 @@ def alignTranscript(
     ordered = sorted(transcript, key=lambda item: (item["start"], item["end"]))
     aligned: list[TranscriptSegment] = []
     used_nearest = False
-    for index, segment in enumerate(ordered, start=1):
+    next_id = 1
+    split_segments = False
+    for segment in ordered:
         if turns:
             speaker, nearest = _match(segment, turns)
             used_nearest = used_nearest or nearest
         else:
             speaker = "SPEAKER_UNKNOWN"
-        output_segment: TranscriptSegment = {
-            "id": f"seg-{index}", "speakerId": speaker,
-            "start": segment["start"], "end": segment["end"], "text": segment["text"],
-        }
-        language = detectSegmentLanguage(segment["text"])
-        if language is not None:
-            output_segment["language"] = language
-        aligned.append(output_segment)
+        chunks = _split_text(segment["text"])
+        split_segments = split_segments or len(chunks) > 1
+        for text in chunks:
+            if next_id > MAX_TRANSCRIPT_SEGMENTS:
+                raise AlignmentError(
+                    "TRANSCRIPT_TOO_LARGE", "Transcript exceeds the 5000-segment protocol AI limit.",
+                )
+            output_segment: TranscriptSegment = {
+                "id": f"seg-{next_id}", "speakerId": speaker,
+                "start": segment["start"], "end": segment["end"], "text": text,
+            }
+            language = detectSegmentLanguage(text)
+            if language is not None:
+                output_segment["language"] = language
+            if _json_length(output_segment) > MAX_TRANSCRIPT_SEGMENT_JSON_CHARS:
+                raise AlignmentError("INVALID_TRANSCRIPT", "Transcript segment exceeds the 6000-character JSON limit.")
+            aligned.append(output_segment)
+            next_id += 1
     if aligned and not turns:
         warnings.append("No diarization intervals: SPEAKER_UNKNOWN is unassigned and excluded from detectedSpeakers.")
     if used_nearest:
         warnings.append("Some STT segments had no overlapping speaker interval; nearest interval was used.")
+    if split_segments:
+        warnings.append("Long STT segments were split using original model time bounds; no subsegment timestamps were invented.")
     return AlignmentResult(
         result={
             "durationSeconds": duration_seconds,

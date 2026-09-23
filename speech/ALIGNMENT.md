@@ -20,8 +20,8 @@ that output as AI speaker detection. The public contract has no provenance field
 so job state must retain the internal envelope while consumers receive `.result`.
 
 Matching is deliberately simple: each complete STT segment selects the speaker
-interval with the largest timestamp overlap. It is not split, translated, trimmed
-or rewritten. Repeated intervals from the same speaker are compared individually,
+interval with the largest timestamp overlap. It is never translated. Repeated
+intervals from the same speaker are compared individually,
 not summed. For equal overlap, choose midpoint containment, then shortest distance
 from midpoint to interval, then earlier start/end and lexical speaker ID.
 Speaker intervals are half-open for containment (`start <= midpoint < end`),
@@ -37,8 +37,15 @@ excluding `SPEAKER_UNKNOWN`. Empty transcripts produce `segments: []` and zero
 assigned speakers, preserving the supplied duration.
 
 STT segments are sorted by start/end (original order breaks identical timestamp
-ties), then assigned unique `seg-1`, `seg-2`, ... IDs. These IDs are scoped to one
-result and deterministic for the same input. Input collections are not modified.
+ties). Text longer than 800 characters is split near a sentence or whitespace
+boundary so every compact UTF-8 JSON segment stays below 6000 characters. Split
+pieces retain the original model segment's start/end instead of inventing precise
+subsegment times; concatenating their text reproduces the source exactly. All
+pieces receive globally unique `seg-1`, `seg-2`, ... IDs and the same aligned
+speaker. These IDs are scoped to one result and deterministic for the same input.
+Input collections are not modified.
+The final boundary rejects more than 120000 source-text characters or 5000
+segments with `TRANSCRIPT_TOO_LARGE`, before anything is sent to protocol AI.
 Runtime validation rejects invalid duration, non-string text, empty/unknown source
 speaker labels, nonfinite/negative timestamps, reversed intervals and intervals
 outside the recording. Failures use `AlignmentError` with `INVALID_DURATION`,

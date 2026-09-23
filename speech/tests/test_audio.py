@@ -1,3 +1,5 @@
+import importlib
+import importlib.util
 import struct
 import tempfile
 import unittest
@@ -6,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from speech import AudioPreparationError, prepareAudio
+from speech.audio import DEFAULT_MAX_BYTES, DEFAULT_MAX_DURATION_SECONDS
 
 
 class AudioTests(unittest.TestCase):
@@ -14,13 +17,33 @@ class AudioTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
 
-    def wav(self, name: str = "meeting.wav", channels: int = 1, rate: int = 16000) -> Path:
+    def wav(
+        self, name: str = "meeting.wav", channels: int = 1, rate: int = 16000,
+        duration_seconds: int = 1,
+    ) -> Path:
         path = self.directory / name
         with wave.open(str(path), "wb") as output:
             output.setnchannels(channels)
             output.setsampwidth(2)
             output.setframerate(rate)
-            output.writeframes(b"\x00\x00" * channels * rate)
+            output.writeframes(b"\x00\x00" * channels * rate * duration_seconds)
+        return path
+
+    def mp3(self, name: str = "meeting.mp3") -> Path:
+        module = importlib.import_module("av")
+        path = self.directory / name
+        output = module.open(str(path), "w")
+        stream = output.add_stream("mp3", rate=16000)
+        stream.layout = "mono"
+        for _ in range(10):
+            frame = module.AudioFrame(format="s16", layout="mono", samples=1600)
+            frame.sample_rate = 16000
+            frame.planes[0].update(bytes(3200))
+            for packet in stream.encode(frame):
+                output.mux(packet)
+        for packet in stream.encode():
+            output.mux(packet)
+        output.close()
         return path
 
     def assert_error(self, path: Path, code: str) -> None:
@@ -42,11 +65,30 @@ class AudioTests(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), original)
                 self.assertEqual(list(self.directory.iterdir()), [path])
 
-    def test_mp3_explicitly_unsupported(self) -> None:
-        # Decoder capability gate, not a claim to validate MP3 contents.
+    @unittest.skipUnless(importlib.util.find_spec("av"), "PyAV runtime dependency not installed")
+    def test_valid_mp3_and_actual_format_checks(self) -> None:
+        path = self.mp3()
+        original = path.read_bytes()
+        result = prepareAudio(path)
+        self.assertEqual(result.format, "mp3")
+        self.assertAlmostEqual(result.duration_seconds, 1.0, places=2)
+        self.assertEqual(result.sample_rate, 16000)
+        self.assertEqual(path.read_bytes(), original)
+        spoofed_wav = self.directory / "spoofed.wav"
+        spoofed_wav.write_bytes(original)
+        self.assert_error(spoofed_wav, "UNSUPPORTED_FORMAT")
+        spoofed_mp3 = self.directory / "spoofed.mp3"
+        spoofed_mp3.write_bytes(self.wav("source.wav").read_bytes())
+        self.assert_error(spoofed_mp3, "UNSUPPORTED_FORMAT")
+
+    @unittest.skipUnless(importlib.util.find_spec("av"), "PyAV runtime dependency not installed")
+    def test_corrupt_mp3_and_missing_decoder_are_controlled(self) -> None:
         path = self.directory / "meeting.mp3"
         path.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00")
-        self.assert_error(path, "UNSUPPORTED_FORMAT")
+        self.assert_error(path, "CORRUPT_AUDIO")
+        valid = self.mp3("valid.mp3")
+        with patch("speech.audio.importlib.import_module", side_effect=ImportError("missing")):
+            self.assert_error(valid, "DECODER_UNAVAILABLE")
 
     def test_empty_file(self) -> None:
         path = self.directory / "empty.wav"
@@ -83,6 +125,16 @@ class AudioTests(unittest.TestCase):
             prepareAudio(path, max_bytes=size - 1)
         self.assertEqual(caught.exception.code, "FILE_TOO_LARGE")
 
+    def test_meeting_limits_accept_1800_seconds_and_reject_longer(self) -> None:
+        self.assertEqual(DEFAULT_MAX_BYTES, 400 * 1024 * 1024)
+        self.assertEqual(DEFAULT_MAX_DURATION_SECONDS, 1800)
+        accepted = prepareAudio(self.wav("accepted.wav", rate=1, duration_seconds=1800))
+        self.assertEqual(accepted.duration_seconds, 1800)
+        with self.assertRaises(AudioPreparationError) as caught:
+            prepareAudio(self.wav("too-long.wav", rate=1, duration_seconds=1801))
+        self.assertEqual(caught.exception.code, "DURATION_EXCEEDED")
+        self.assertIn("not truncated", str(caught.exception))
+
     def test_missing_file_and_directory(self) -> None:
         self.assert_error(self.directory / "missing.wav", "INVALID_FILE")
         self.assert_error(self.directory, "INVALID_FILE")
@@ -90,6 +142,9 @@ class AudioTests(unittest.TestCase):
     def test_invalid_limit(self) -> None:
         with self.assertRaises(ValueError):
             prepareAudio(self.wav(), max_bytes=0)
+        for duration in (0, -1, float("nan"), float("inf"), True):
+            with self.subTest(duration=duration), self.assertRaises(ValueError):
+                prepareAudio(self.wav(), max_duration_seconds=duration)
 
     def test_io_error_is_controlled(self) -> None:
         path = self.wav()

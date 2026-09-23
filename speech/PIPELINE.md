@@ -25,9 +25,21 @@ sorted. Original text is preserved. Silence/empty transcripts may produce an
 empty list and zero detected speakers. An absent diarization model is an error,
 not an automatic simulation. Input remains owned by the caller and is not deleted.
 
+Accepted input is PCM WAV or MP3 up to 400 MiB and 1800 seconds. Format and full
+duration are checked locally before inference. Longer recordings fail with
+`DURATION_EXCEEDED`; no recording is silently cropped. All returned timestamps
+remain seconds from the beginning of the complete input.
+
+Public transcript segments are bounded below the protocol AI's 6000-character
+JSON limit. Oversized model segments are split without translation, retain one
+speaker, receive globally unique IDs and reuse their source model interval rather
+than claiming fabricated subsegment precision.
+The boundary also rejects more than 120000 source-text characters or 5000 public
+segments with `TRANSCRIPT_TOO_LARGE`, matching the protocol AI input limits.
+
 `PipelineError.stage` identifies `configuration`, `preprocessing`, `stt`,
 `diarization` or `alignment`. Known errors preserve their underlying stable code,
-such as `INVALID_FILE`, `MODEL_MISSING`, `MODEL_LOADING_FAILED` or
+such as `INVALID_FILE`, `DURATION_EXCEEDED`, `MODEL_MISSING`, `MODEL_LOADING_FAILED` or
 `INFERENCE_FAILED`. Unexpected ordinary exceptions are wrapped as `STAGE_FAILED`
 with a generic public message and chained cause for internal debugging. Failed
 stages stop execution; no partial public result is returned. Process termination,
@@ -64,7 +76,7 @@ demo options require explicit DEMO mode and do not affect local-model inference.
 
 ## End-to-end verification
 
-`speech/tests/test_pipeline.py` includes actual WAV → preprocessing → local
+`speech/tests/test_pipeline.py` includes actual WAV/MP3 → preprocessing → local
 Whisper → explicit DEMO diarization → alignment/language → schema-validated JSON.
 The audio is the attributed 13.68-second RU fixture. No stage function is mocked
 in that test; only outbound Python socket connections are blocked. DEMO is an
@@ -91,6 +103,11 @@ The fully real-model E2E test is enabled additionally by
 `JINALYS_DIARIZATION_MODEL_DIR`. It remains unverified until an authorized complete
 diarization bundle and compatible dependencies are installed. A passing DEMO E2E
 must not be reported as a passing fully model-based diarization pipeline.
+
+The supported integration profile runs speech inference on CPU int8. It does not
+allocate the shared RTX 4060 Laptop 8 GB, leaving GPU memory to Ollama/Qwen3 4B.
+The internal `transcribeAudio(..., device="cuda")` option is not enabled by
+`processMeetingAudio` and has not been co-residency tested with Qwen3.
 
 Stage 8 validation (2026-09-23): the real-audio/real-STT/DEMO-diarization E2E test
 passed alone and again in the full suite. Full discovery: 88 tests, 87 passed,
