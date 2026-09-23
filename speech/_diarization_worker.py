@@ -36,6 +36,21 @@ class _Loader(Protocol):
     def __call__(self, checkpoint: str, *, token: bool) -> _Pipeline | None: ...
 
 
+def _configure_ffmpeg() -> object | None:
+    """Make an explicitly configured shared FFmpeg bundle visible to TorchCodec."""
+    configured = os.environ.get("JINALYS_FFMPEG_DIR")
+    if not configured:
+        return None
+    directory = Path(configured).resolve()
+    if not directory.is_dir():
+        raise FileNotFoundError("JINALYS_FFMPEG_DIR is not a directory")
+    os.environ["PATH"] = f"{directory}{os.pathsep}{os.environ.get('PATH', '')}"
+    add_dll_directory = getattr(os, "add_dll_directory", None)
+    if add_dll_directory is not None:
+        return cast(object, add_dll_directory(str(directory)))
+    return None
+
+
 def run(model: Path, audio: Path, num_speakers: int | None) -> int:
     """Return 2 for setup failure, 3 for inference failure; stdout is JSON only."""
     os.environ.update({
@@ -46,6 +61,9 @@ def run(model: Path, audio: Path, num_speakers: int | None) -> int:
     try:
         if not (model / "config.yaml").is_file():
             raise FileNotFoundError("Missing local config.yaml")
+        # Keep the handle alive until inference completes. Python 3.8+ no longer
+        # resolves dependent Windows DLLs from PATH alone.
+        ffmpeg_dll_directory = _configure_ffmpeg()
         with redirect_stdout(sys.stderr):
             module = importlib.import_module("pyannote.audio")
             loader = cast(_Loader, module.Pipeline.from_pretrained)
@@ -56,6 +74,7 @@ def run(model: Path, audio: Path, num_speakers: int | None) -> int:
         print("MODEL_LOADING_FAILED: check local bundle and pyannote dependencies.", file=sys.stderr)
         return 2
     try:
+        _ = ffmpeg_dll_directory
         with redirect_stdout(sys.stderr):
             output = pipeline(str(audio), num_speakers=num_speakers)
             result = [
