@@ -46,8 +46,8 @@ outside the recording. Failures use `AlignmentError` with `INVALID_DURATION`,
 
 The Python TypedDicts mirror the existing TypeScript contract. `.result` contains
 only `durationSeconds`, `detectedSpeakers`, and `segments`; segment fields are
-exactly `id`, `speakerId`, `start`, `end`, and `text`. Optional speaker names and
-language values are not inferred by timestamp alignment. No runtime model or
+`id`, `speakerId`, `start`, `end`, and `text`, plus optional `language` from the
+lightweight text heuristic. Speaker names are not inferred. No runtime model or
 network dependency is introduced. Complexity is O(transcript segments × speaker
 intervals), suitable for the initial MVP.
 

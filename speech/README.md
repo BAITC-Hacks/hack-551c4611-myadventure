@@ -122,3 +122,15 @@ Its `.result` is the exact public `SpeechPipelineResult` JSON; DEMO provenance a
 warnings stay outside that JSON. See `ALIGNMENT.md` for boundary/empty-input rules
 and schema validation. The alignment schema test needs `npm ci --prefix
 contracts/speech` in addition to the Python test tools listed above.
+
+## Optional segment language
+
+`detectSegmentLanguage(text)` returns `ru`, `kk`, `mixed`, or `None` using a small
+local word/character heuristic. Alignment adds the already-supported `language`
+field only when evidence is sufficient. It never changes text or STT settings.
+Distinct Kazakh markers plus a Russian marker recognize mixed speech, including
+`Асқар, осы аптада подрядчикпен сөйлесіп, новый график жасап беріңіз.`
+Short/ambiguous text stays unclassified. A lone Kazakh name does not trigger mixed;
+shared loanwords alone are not Russian evidence. This is an approximate helper,
+not a linguistic model: transliteration, unknown vocabulary and subtle switches
+can remain unclassified or be misclassified. No dependency or network call is added.

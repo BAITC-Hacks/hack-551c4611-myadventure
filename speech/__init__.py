@@ -3,6 +3,7 @@
 from .alignment import AlignmentError, AlignmentResult, SpeechPipelineResult, TranscriptSegment, alignTranscript
 from .audio import AudioPreparationError, PreparedAudio, prepareAudio
 from .diarization import DiarizationError, DiarizationResult, DiarizationSegment, PyannoteLocalBackend, diarizeAudio
+from .language import detectSegmentLanguage
 from .stt import TranscriptionError, TranscriptionSegment, transcribeAudio
 
 __all__ = [
@@ -10,4 +11,5 @@ __all__ = [
     "TranscriptionError", "TranscriptionSegment", "transcribeAudio",
     "DiarizationError", "DiarizationResult", "DiarizationSegment", "PyannoteLocalBackend", "diarizeAudio",
     "AlignmentError", "AlignmentResult", "SpeechPipelineResult", "TranscriptSegment", "alignTranscript",
+    "detectSegmentLanguage",
 ]

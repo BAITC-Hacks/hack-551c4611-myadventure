@@ -31,7 +31,7 @@ class AlignmentTests(unittest.TestCase):
 
     def test_inside_speaker_interval(self) -> None:
         result = self.align(stt(1, 3)).result
-        self.assertEqual(result["segments"], [{"id": "seg-1", "speakerId": "SPEAKER_00", **stt(1, 3)}])
+        self.assertEqual(result["segments"], [{"id": "seg-1", "speakerId": "SPEAKER_00", **stt(1, 3), "language": "ru"}])
         self.assertEqual(result["detectedSpeakers"], 1)
 
     def test_crosses_two_intervals_largest_overlap_wins(self) -> None:
@@ -129,6 +129,18 @@ class AlignmentTests(unittest.TestCase):
             alignTranscript([stt(1, 2)], diarization(), duration_seconds=10).result,
             alignTranscript([stt(1, 2)], demo, duration_seconds=10).result,
         ]
+        for text, language in [
+            ("Сегодня нужно подготовить итоговый отчёт.", "ru"),
+            ("Әріптестер, бүгін жиналысты бастаймыз.", "kk"),
+            ("Асқар, осы аптада подрядчикпен сөйлесіп, новый график жасап беріңіз.", "mixed"),
+            ("ОК", None),
+        ]:
+            result = self.align(stt(1, 2, text)).result
+            self.assertEqual(result["segments"][0].get("language"), language)
+            if language is None:
+                self.assertNotIn("language", result["segments"][0])
+            self.assertEqual(result["segments"][0]["text"], text)
+            outputs.append(result)
         validator = """
 import { readFileSync } from 'node:fs';
 import Ajv from 'ajv';

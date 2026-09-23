@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal, NotRequired, TypedDict
 
 from .diarization import DiarizationResult, DiarizationSegment
+from .language import detectSegmentLanguage
 from .stt import TranscriptionSegment
 
 
@@ -119,10 +120,14 @@ def alignTranscript(
             used_nearest = used_nearest or nearest
         else:
             speaker = "SPEAKER_UNKNOWN"
-        aligned.append({
+        output_segment: TranscriptSegment = {
             "id": f"seg-{index}", "speakerId": speaker,
             "start": segment["start"], "end": segment["end"], "text": segment["text"],
-        })
+        }
+        language = detectSegmentLanguage(segment["text"])
+        if language is not None:
+            output_segment["language"] = language
+        aligned.append(output_segment)
     if aligned and not turns:
         warnings.append("No diarization intervals: SPEAKER_UNKNOWN is unassigned and excluded from detectedSpeakers.")
     if used_nearest:
