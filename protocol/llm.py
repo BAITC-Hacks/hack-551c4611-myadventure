@@ -21,7 +21,7 @@ class LocalLLM:
         self.model = model or os.getenv("LOCAL_LLM_MODEL", "")
         self.base_url = (base_url or os.getenv("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434")).rstrip("/")
         try:
-            self.timeout = float(timeout if timeout is not None else os.getenv("LOCAL_LLM_TIMEOUT", "120"))
+            self.timeout = float(timeout if timeout is not None else os.getenv("LOCAL_LLM_TIMEOUT", "600"))
             parsed = urlparse(self.base_url)
             host = parsed.hostname
             local = host == "localhost" or ipaddress.ip_address(host).is_loopback
