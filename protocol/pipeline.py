@@ -3,6 +3,7 @@ import json
 
 from .deadlines import normalize_deadline
 from .llm import LocalLLM
+from .quality import clean_deadline, clean_person, meaningful_task
 from .validation import CONTRACT, ProtocolError, validate, validate_input, validate_output
 
 RULES = """You analyze meeting transcripts in Russian, Kazakh, or mixed language.
@@ -117,12 +118,27 @@ def _generate_chunk(transcript, metadata=None, *, llm=None, on_progress=None):
 Keep task wording in its original language (Kazakh stays Kazakh); do not translate or corrupt unfamiliar words.
 deadlineText is the exact original deadline phrase, including Kazakh time expressions. deadline=null always.
 Missing assignee or deadline: null and needsReview=true. Include supporting sourceSegmentIds.
-confidence is a cautious score 0..1. Avoid duplicate assignments.""",
+confidence is a cautious score 0..1. Avoid duplicate assignments.
+Read the WHOLE supplied dialogue before extracting. Combine requests with subsequent acceptance,
+named addressees, and deadline clarifications. Cite ALL segments needed to support these fields.
+Return one self-contained task per deliverable, not a card per utterance.
+Do not extract 'сделаю', 'проверить', 'принято', or reminders without a concrete deliverable.
+Keep conditions: 'if violations recur, terminate' is NOT unconditional termination.
+If the same task's deadline is explicitly revised later, use the final deadline and cite the revision.
+Do not confuse a contract's invoice/payment period with the deadline for drafting that contract.
+UNKNOWN, speaker IDs and the string 'null' are NEVER names. Use JSON null.
+deadlineText must be a concise time expression, not a full instruction or 'не откладывать'.""",
                     {"transcript": transcript}, EXTRACTION)
     sources = {s["id"]: s for s in transcript}
     actions = []
     progress("verifying")
     for candidate in extracted["actionItems"]:
+        if not meaningful_task(candidate["task"]):
+            continue
+        candidate["assignee"] = clean_person(candidate["assignee"], transcript)
+        candidate["deadlineText"] = clean_deadline(candidate["deadlineText"])
+        if "assignedBy" in candidate:
+            candidate["assignedBy"] = clean_person(candidate["assignedBy"], transcript)
         if not set(candidate["sourceSegmentIds"]) <= sources.keys():
             raise ProtocolError("Extractor referenced unknown transcript segments")
         verdict = ask(llm, """Independently fact-check the candidate against the transcript.
@@ -133,6 +149,10 @@ taskSupported: task meaning matches the utterance. assigneeSupported: non-null n
 deadlineSupported: deadlineText is a time expression present in the source. Relative deadlines in ANY language count as supported, even if deadline=null and meeting date is unknown.
 assignedBySupported: supplied author is supported, or no author supplied.
 sourcesSupported: the cited segment IDs contain evidence for the task.
+An acceptance ('сделаю') is not an independent task. A vague 'проверить' without its object is not supported.
+Check conditions and later corrections. The candidate must preserve conditionality.
+Each non-null person must be a real name/role from dialogue, never a speaker ID or placeholder.
+An invoice policy period is not a deadline for preparing a contract. 'Не откладывать' is not a deadline.
 Example: 'Мария, пришлите договор' isAction=true; 'Можно когда-нибудь обновить систему' isAction=false.""",
                       {"transcript": transcript, "candidate": candidate}, VERDICT)
         if not verdict["isAction"] or not verdict["taskSupported"] or not verdict["sourcesSupported"]:
@@ -143,6 +163,10 @@ Example: 'Мария, пришлите договор' isAction=true; 'Можн�
         if not verdict["assignedBySupported"]:
             action["assignedBy"] = None
         evidence = " ".join(sources[s]["text"] for s in action["sourceSegmentIds"])
+        # Require a cited explicit name/role; a nearby speaker label alone is not proof.
+        for field in ("assignee", "assignedBy"):
+            if action.get(field) and action[field].casefold() not in evidence.casefold():
+                action[field] = None
         if not verdict["deadlineSupported"] or (action["deadlineText"] and action["deadlineText"].casefold() not in evidence.casefold()):
             action["deadlineText"] = None
         action["deadline"] = normalize_deadline(action["deadlineText"], metadata.get("meetingDate"))
