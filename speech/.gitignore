@@ -1,0 +1,7 @@
+__pycache__/
+.ruff_cache/
+.mypy_cache/
+models/
+.env
+.venv-diarization/
+.dev-tools/

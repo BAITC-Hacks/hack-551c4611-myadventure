@@ -1,0 +1,156 @@
+{
+  "scope": "Real local STT + DEMO speaker assignment",
+  "speaker_separation_ai_evaluated": false,
+  "note": "DEMO PASS validates pipeline execution and assigned labels, not AI speaker recognition. Local-model tests are not a DER benchmark.",
+  "results": [
+    {
+      "case": "RU",
+      "file": "ru.wav",
+      "status": "PASS",
+      "sha256": "39d53aea7935168420932953c9cd17eb850b79d2e54bdd9349c0f284244abe7d",
+      "result": {
+        "durationSeconds": 13.68,
+        "detectedSpeakers": 1,
+        "segments": [
+          {
+            "id": "seg-1",
+            "speakerId": "SPEAKER_00",
+            "start": 0.24,
+            "end": 6.26,
+            "text": "Они умеют отлично видеть в темноте при помощи ночного видения и почти незаметно передвигаться."
+          },
+          {
+            "id": "seg-2",
+            "speakerId": "SPEAKER_00",
+            "start": 6.78,
+            "end": 12.66,
+            "text": "Оцелоты выслеживают добычу, сливаясь с окружающей обстановкой, а затем набрасываются на добычу."
+          }
+        ]
+      },
+      "diarization_mode": "DEMO",
+      "warnings": [
+        "DEMO: diarization uses simulated speaker turns, not detected voices. STT remains local AI.",
+        "DEMO: speaker labels are deterministic simulation, not AI diarization.",
+        "DEMO: deterministic time-based speaker labels, not AI diarization or detected speaker identities."
+      ]
+    },
+    {
+      "case": "KZ",
+      "file": "kk.wav",
+      "status": "PASS",
+      "sha256": "bbb79abae2029449fb271e8c7af1c03c1eaf79b67a2b97f34921c7ddb2b2b179",
+      "result": {
+        "durationSeconds": 12.3,
+        "detectedSpeakers": 1,
+        "segments": [
+          {
+            "id": "seg-1",
+            "speakerId": "SPEAKER_00",
+            "start": 0.27,
+            "end": 11.49,
+            "text": "ғалымдар атсыулаттар жейтін жануарлардың иесі арқылы жерде қайда болғанын иескеу арқылы тауып алады, деп ойлайды.",
+            "language": "kk"
+          }
+        ]
+      },
+      "diarization_mode": "DEMO",
+      "warnings": [
+        "DEMO: diarization uses simulated speaker turns, not detected voices. STT remains local AI.",
+        "DEMO: speaker labels are deterministic simulation, not AI diarization.",
+        "DEMO: deterministic time-based speaker labels, not AI diarization or detected speaker identities."
+      ]
+    },
+    {
+      "case": "MIXED",
+      "file": "mixed.wav",
+      "status": "PASS",
+      "sha256": "9049b7094c1a061ad2f90c52aaa5ad2ca19af0f0eeb6d9c4e51ad10fcbf4d15c",
+      "demo_turn_seconds": 14.68,
+      "demo_timing_source": "Known montage boundary; not inferred from voices",
+      "result": {
+        "durationSeconds": 26.98,
+        "detectedSpeakers": 2,
+        "segments": [
+          {
+            "id": "seg-1",
+            "speakerId": "SPEAKER_00",
+            "start": 0.24,
+            "end": 12.7,
+            "text": "они умеют отлично видеть в темноте при помощи ночного видения и почти незаметно перетвигаться ацелоты выслеживают добычу сливаясь с окружающей обстановкой а затем набрасываются на добычу"
+          },
+          {
+            "id": "seg-2",
+            "speakerId": "SPEAKER_01",
+            "start": 14.52,
+            "end": 26.18,
+            "text": "ғалымдар ацелоттар жейтін жануарлардың иісі арқылы жерде қайда болғанын иіскеу арқылы тауып алады деп ойлайды",
+            "language": "kk"
+          }
+        ]
+      },
+      "diarization_mode": "DEMO",
+      "warnings": [
+        "DEMO: diarization uses simulated speaker turns, not detected voices. STT remains local AI.",
+        "DEMO: speaker labels are deterministic simulation, not AI diarization.",
+        "DEMO: deterministic time-based speaker labels, not AI diarization or detected speaker identities."
+      ]
+    },
+    {
+      "case": "MULTI SPEAKER",
+      "file": "multi-speaker.wav",
+      "status": "PASS",
+      "sha256": "93eee4c790a29eaec9cc46387a5ba50fd4ca356d946fc4dd34ebc42086cf24f1",
+      "demo_turn_seconds": 13.3,
+      "demo_timing_source": "Known montage boundary; not inferred from voices",
+      "result": {
+        "durationSeconds": 26.98,
+        "detectedSpeakers": 2,
+        "segments": [
+          {
+            "id": "seg-1",
+            "speakerId": "SPEAKER_00",
+            "start": 0.27,
+            "end": 11.51,
+            "text": "ғалымдар оцелоттар жейтін жануарлардың иісі арқылы жерде қайда болғанын иіскеу арқылы тауып алады деп ойлайды",
+            "language": "kk"
+          },
+          {
+            "id": "seg-2",
+            "speakerId": "SPEAKER_01",
+            "start": 13.52,
+            "end": 25.94,
+            "text": "они умеют отлично видеть темноте при помощи ночного видения и почти незаметно перетвигаться оцелоты выслеживают добычу сливаясь с окружающей обстановкой а затем набрасываются на добычу"
+          },
+          {
+            "id": "seg-3",
+            "speakerId": "SPEAKER_01",
+            "start": 25.94,
+            "end": 26.1,
+            "text": "Vamos lá."
+          }
+        ]
+      },
+      "diarization_mode": "DEMO",
+      "warnings": [
+        "DEMO: diarization uses simulated speaker turns, not detected voices. STT remains local AI.",
+        "DEMO: speaker labels are deterministic simulation, not AI diarization.",
+        "DEMO: deterministic time-based speaker labels, not AI diarization or detected speaker identities."
+      ]
+    },
+    {
+      "case": "INVALID FILE",
+      "file": "invalid.wav",
+      "status": "PASS",
+      "sha256": "dc1ba265425a65bb240b623e4cebdbf39604e2a909c43c6157b62cee1f9ad918",
+      "error_stage": "preprocessing",
+      "error_code": "UNSUPPORTED_FORMAT",
+      "message": "Meeting audio preprocessing failed: File content is not a RIFF/WAVE audio file.",
+      "diarization_mode": "DEMO",
+      "warnings": [
+        "DEMO: diarization uses simulated speaker turns, not detected voices. STT remains local AI."
+      ]
+    }
+  ],
+  "passed": true
+}
