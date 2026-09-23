@@ -105,3 +105,11 @@ run the same unittest command above. Seven real-model tests are skipped only whe
 the variable is absent. They use attributed fixtures and block Python socket
 connections during inference. For deployment, network isolation provides an
 additional boundary. See `STT_VALIDATION.md` for the measured validation scope.
+
+## Speaker diarization
+
+`diarizeAudio(preparedAudio)` provides anonymous speaker turns through an optional
+local pyannote backend. Without its separately provisioned model it returns a
+controlled error. `mode="demo"` explicitly enables deterministic simulation,
+marked `DEMO` with a warning in the result. See `DIARIZATION.md` for examples,
+offline setup and the distinction between adapter tests and real-model evaluation.
