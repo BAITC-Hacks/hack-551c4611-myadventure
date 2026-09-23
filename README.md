@@ -1,209 +1,87 @@
 # JINALYS AI
 
 ## 1. Описание решения и назначение
+Локальный AI-секретарь совещаний: аудио → транскрипт со спикерами → поручения/сроки/ответственные → ключевые цитаты → DOCX. Предназначен для подготовки и ручной проверки протокола секретарём.
 
-JINALYS AI — прототип локального AI-секретаря совещаний. Его назначение — сократить ручную подготовку протоколов и помочь сохранять поручения, ответственных и сроки.
-
-Пользовательский результат: транскрипт с говорящими и временем реплик, краткое саммари, структурированный список поручений и экспорт DOCX.
-
-**Текущее состояние репозитория:** веб-интерфейс и Python-модуль Protocol AI присутствуют, но ещё не соединены сквозным обработчиком. Веб-демо использует явно обозначенный пример. `POST /api/meetings` возвращает 503 `PIPELINE_NOT_CONFIGURED`. Speech-to-text/диаризация участника №1 в проверенной версии main отсутствуют. Наличие модулей в одном репозитории не означает готовность полного аудиосценария.
-
-Реализовано:
-- Казахский адаптивный интерфейс; светлая/тёмная тема, режимы «Жұмыс»/«Тыныш».
-- Выбор MP3/WAV до 400 МиБ, отображение саммари, поручений и транскрипта.
-- Поиск, фильтр «Тек тексеру қажет», переход к исходной реплике.
-- Имена спикеров в транскрипте, DOCX-экспорт полного результата.
-- Protocol AI: локальный Ollama adapter, извлечение поручений, нормализация сроков, независимая проверка и извлекающее саммари.
-
-Не подключено/не реализовано в общем сценарии: распознавание аудио, диаризация, связь UI с Python pipeline, live-запись, Teams/Zoom/Meet, PDF, напоминания, СЭД и промышленная аутентификация.
+Интеграционный код связывает модули участников №1/№2 с существующим интерфейсом №3. Настоящие модели НЕ скачаны на проверочной машине; реальный сквозной RU/KK/mixed/30-минутный сценарий ещё не подтверждён. Кнопка «Демоны ашу» остаётся явно обозначенным примером, не результатом распознавания.
 
 ## 2. Архитектура
-
 ```text
-Работающий UI demo:
-  «Демоны ашу» → lib/demo.ts → Web UI → DOCX
-
-Работающий независимый Protocol AI:
-  JSON {transcript, metadata}
-    → Extractor → Deadline normalizer → Verifier → Summary → MeetingProtocol
-                       Python + локальный Ollama
-
-Целевая сквозная интеграция (ещё не подключена):
-  MP3/WAV → Next.js POST /api/meetings
-    → local STT + diarization (№1)
-    → segments → generate_meeting_protocol(transcript, metadata) (№2)
-    → проверка/адаптер MeetingProtocol → Web UI → DOCX (№3)
+Browser File + metadata
+ → Next.js POST /api/meetings (streaming proxy)
+ → Python POST /jobs → 202 jobId
+ → очередь: prepareAudio → transcribeAudio → diarizeAudio → alignTranscript
+ → protocol: chunks → extractor → verifier → summary
+ → MeetingProtocol (+ date из metadata)
+Browser GET /api/meetings?jobId=... → status/stage/result → UI → DOCX
 ```
+Один Python worker, до двух активных/ожидающих заданий. Статусы отражают реальные вызовы. chunk:N/M не является точным процентом. done выдаётся после сохранения всего результата.
 
-Frontend-контракт: [lib/contracts.ts](lib/contracts.ts). Контракт Python: [protocol/contracts/protocol.schema.json](protocol/contracts/protocol.schema.json).
-Исходные реплики содержат id, speakerId, start/end в секундах и text. Поручения ссылаются на реплики через sourceSegmentIds. Говорящий и исполнитель поручения могут быть разными людьми.
-
-Verifier повторно проверяет поручения по источникам. Неизвестные имена/сроки остаются null; неоднозначность помечается needsReview. Саммари строится из выбранных моделью исходных цитат. Это снижает риск искажений, но не гарантирует безошибочность AI.
-
-Структура:
-- `app/` — страницы, оформление и HTTP-заглушка.
-- `lib/` — frontend-контракты, demo и DOCX.
-- `protocol/` — Python pipeline, CLI, JSON Schema, fixture, tests.
-- `tests/` — frontend-контракт и экспорт.
-- `docs/TEAM_HANDOFF.md` — пошаговая интеграция для участника №2.
-- `docs/handoff/protocol-ai.md` — подробности Python-модуля.
+Основные файлы: app/page.tsx, app/api/meetings/route.ts, integration/server.py, speech/, protocol/, lib/contracts.ts, lib/export.ts. [Полный HTTP-контракт и жизненный цикл](docs/LOCAL_RUN.md).
 
 ## 3. Используемые технологии
-
-| Часть | Технологии |
-| --- | --- |
-| Web UI | Next.js App Router, React, TypeScript strict, CSS, lucide-react |
-| Валидация UI | Zod |
-| Экспорт | docx, генерация в браузере |
-| Protocol AI | Python, jsonschema 4.26.0 |
-| Local LLM | Ollama, проверенная автором модуля модель qwen3:4b |
-| Проверки | Node test runner, TypeScript, Next build, Python unittest |
-
-Версии npm-зависимостей закреплены в package-lock.json; используйте npm ci. Speech-стек будет документирован после добавления модуля №1.
+Next.js App Router, React, TypeScript, CSS, Zod, lucide-react, docx. Python standard-library HTTP server и очередь. Speech: faster-whisper 1.2.1, PyAV 18.1.0, local pyannote.audio 4.0.7. Protocol: jsonschema 4.26.0, Ollama/qwen3:4b. Npm версии закреплены package-lock.json.
 
 ## 4. Инструкции по установке
-
-Команды ниже — PowerShell, из корня репозитория. Для новой установки:
-
+PowerShell из корня репозитория:
 ```powershell
-git clone https://github.com/BAITC-Hacks/hack-551c4611-myadventure.git
-cd hack-551c4611-myadventure
 npm.cmd ci
-python -m venv protocol/.venv
-protocol/.venv/Scripts/python -m pip install -r protocol/requirements.txt
+python -m venv .venv
+.venv/Scripts/python -m pip install -r integration/requirements.txt
+python -m venv speech/.venv-diarization
+speech/.venv-diarization/Scripts/python -m pip install -r speech/requirements-diarization.txt
 ```
-
-Для одного UI достаточно npm ci. В существующем клоне сначала сохраните свою работу; не клонируйте поверх рабочего каталога.
-
-Установите Ollama с [официального сайта](https://ollama.com/download). В отдельном терминале запустите локальный сервер:
-
-```powershell
-powershell -File protocol/start-local.ps1
-```
-
-В другом терминале загрузите модель в этот сервер:
-
-```powershell
-$env:OLLAMA_HOST = '127.0.0.1:11435'
-ollama pull qwen3:4b
-```
-
-Модели не входят в Git. Интернет нужен для первоначальной установки зависимостей и скачивания модели; обработка текста выполняется локально.
-
-На Linux/macOS вместо npm.cmd используйте npm, вместо protocol/.venv/Scripts/python — protocol/.venv/bin/python. PowerShell-скрипт сервера заменяется:
-
-```bash
-OLLAMA_HOST=127.0.0.1:11435 OLLAMA_NO_CLOUD=1 ollama serve
-```
+Скачивание моделей и необходимые условия доступа описаны пошагово в [docs/LOCAL_RUN.md](docs/LOCAL_RUN.md), раздел «Этап 2». Whisper требует локальных весов/tokenizer, pyannote — полного разрешённого community-1 bundle, Ollama — qwen3:4b. Веса не коммитятся. Без них реальная обработка возвращает ошибку, не demo fallback.
 
 ## 5. Инструкции по запуску
+Запуск в трёх отдельных терминалах из корня:
+1. `powershell -File protocol/start-local.ps1` — Ollama на 127.0.0.1:11435.
+2. Установить переменные из раздела 7, затем `.venv/Scripts/python -m integration.server` — Python на 127.0.0.1:8765.
+3. `npm.cmd run dev` — UI на http://127.0.0.1:3000.
 
-### Веб-интерфейс
-
-```powershell
-npm.cmd run dev
-```
-
-Открыть http://127.0.0.1:3000. Для демонстрации нажать «Демоны ашу». Это не запуск реального AI.
-
-Production-сборка интерфейса:
-
-```powershell
-npm.cmd run build
-npm.cmd start
-```
-
-Dev и production start не запускать одновременно на одном порту.
-
-### Реальный Protocol AI отдельно от UI
-
-Оставьте Ollama из раздела 4 работающим. В терминале из корня репозитория:
-
-```powershell
-$env:LOCAL_LLM_BASE_URL = 'http://127.0.0.1:11435'
-$env:LOCAL_LLM_MODEL = 'qwen3:4b'
-$env:LOCAL_LLM_TIMEOUT = '600'
-protocol/.venv/Scripts/python -m protocol protocol/fixtures/input.demo.json
-```
-
-На вход подаётся JSON с transcript и metadata, а не аудиофайл. CLI выводит MeetingProtocol JSON в stdout, этапы/ошибки — в stderr; при ошибке возвращает exit code 1. Python API:
-
-```python
-from protocol import generate_meeting_protocol
-result = generate_meeting_protocol(transcript, metadata)
-```
-
-Полный аудиосценарий пока не запускается: интегратору необходимо подключить speech и заменить app/api/meetings/route.ts. Подробности: [гайд интеграции](docs/TEAM_HANDOFF.md).
+Если 3000 занят, `npm.cmd run dev -- --port 3001`. Для production frontend: `npm.cmd run build`, затем `npm.cmd start`; Python и Ollama остаются отдельными процессами. Полные copy-paste команды и порядок настройки: [LOCAL_RUN.md](docs/LOCAL_RUN.md).
 
 ## 6. Необходимые зависимости
+Git, Node.js 22.18+, npm, Python 3.11+ (для ML-пакетов рекомендуются 3.11/3.12), Ollama, локальные Whisper/pyannote/Qwen. Windows-команды выше; Linux/macOS: npm вместо npm.cmd, .venv/bin/python вместо Scripts/python.
 
-- Git.
-- Node.js 22.18+ для встроенного запуска TypeScript-тестов; npm. UI проверен на Windows/Node 26.8.1.
-- Python 3.11+; модуль №2 проверен его автором на Python 3.14.6/Windows.
-- jsonschema 4.26.0 (protocol/requirements.txt).
-- Ollama и локальная multilingual модель для реального Protocol AI.
-- Современный браузер; Word или LibreOffice для просмотра DOCX.
-
-UI не требует GPU, FFmpeg или Docker. Для AI автором модуля описана конфигурация Ollama 0.34.3 + qwen3:4b, RTX 4060 Laptop 8 ГБ VRAM, около 16 ГБ RAM; модель занимает около 2.5 ГБ на диске и около 5.1 ГБ в памяти в его проверке. Это проверенная конфигурация, а не установленный минимум. Скорость CPU и минимальные системные требования не измерены. Требования speech-модуля пока неизвестны.
+Speech использует CPU int8; автор Protocol AI проверял qwen3:4b на RTX 4060 Laptop 8 ГБ и примерно 16 ГБ RAM. Это проверенная им конфигурация, не установленный минимум. UI GPU не нужен. Whisper около 1.6 ГБ, Qwen около 2.5 ГБ на диске; pyannote/PyTorch требуют дополнительного места. Для pyannote decoder могут понадобиться совместимые TorchCodec/FFmpeg shared libraries. Подробности: [speech/README.md](speech/README.md), [speech/DIARIZATION.md](speech/DIARIZATION.md), [Protocol AI](docs/handoff/protocol-ai.md).
 
 ## 7. Параметры окружения
+Python читает переменные процесса, а не .env автоматически. Задать в терминале Python сервера:
+```powershell
+$env:LOCAL_LLM_BASE_URL='http://127.0.0.1:11435'
+$env:LOCAL_LLM_MODEL='qwen3:4b'
+$env:LOCAL_LLM_TIMEOUT='600'
+$env:JINALYS_STT_MODEL_DIR=(Resolve-Path speech/models/large-v3-turbo).Path
+$env:JINALYS_DIARIZATION_MODEL_DIR=(Resolve-Path speech/models/community-1).Path
+$env:JINALYS_DIARIZATION_PYTHON=(Resolve-Path speech/.venv-diarization/Scripts/python.exe).Path
+$env:HF_HUB_OFFLINE='1'
+$env:HF_HUB_DISABLE_TELEMETRY='1'
+```
+LOCAL_LLM_MODEL обязателен; URL adapter по умолчанию 127.0.0.1:11434, наш сервер Ollama работает на 11435; timeout 600 секунд относится к ОДНОМУ запросу модели. STT/DIARIZATION_MODEL_DIR — папки с настоящими весами. DIARIZATION_PYTHON — отдельный interpreter. Скрипт Ollama устанавливает OLLAMA_HOST=127.0.0.1:11435 и OLLAMA_NO_CLOUD=1. Образцы: .env.example, speech/.env.example, protocol/.env.example.
 
-| Переменная | Значение / по умолчанию | Назначение |
-| --- | --- | --- |
-| LOCAL_LLM_MODEL | обязательна; пример qwen3:4b | Установленная локальная модель |
-| LOCAL_LLM_BASE_URL | http://127.0.0.1:11434 | URL Ollama; для нашего скрипта установить http://127.0.0.1:11435 |
-| LOCAL_LLM_TIMEOUT | 600 | Положительный таймаут одного запроса к модели, секунды |
-| OLLAMA_HOST | 127.0.0.1:11435 в start-local.ps1 | Адрес выделенного сервера и клиента ollama pull |
-| OLLAMA_NO_CLOUD | 1 в start-local.ps1 | Локальный режим сервера Ollama |
-
-Пример: [protocol/.env.example](protocol/.env.example). **Python CLI не читает .env автоматически**: задавайте переменные через $env: как выше (Linux/macOS: export). Frontend сейчас не требует env; корневой .env.example это поясняет. Демо включается кнопкой, переменной DEMO_MODE в коде нет.
-
-Адаптер допускает только loopback, отключает proxy/redirects и не имеет облачного fallback. Аудио/текст нельзя отправлять во внешние cloud AI API. Production-защита, политики хранения и развёртывание в закрытом контуре требуют отдельной настройки. Темы сохраняются в localStorage; тексты совещаний там не сохраняются.
+Next UI не требует env, обращается к собственному /api/meetings; прокси фиксирован на loopback:8765. Не отправлять аудио/тексты внешним cloud AI. Не публиковать job server в сеть: это локальный прототип без auth.
 
 ## 8. Порядок проверки основного сценария
+1. Установить зависимости/модели и запустить три процесса.
+2. Ввести название, дату совещания и IANA timezone. Неизвестную дату оставить пустой.
+3. Загрузить MP3/PCM WAV до 400 МиБ и 30 минут.
+4. Дождаться обработки, проверить реальные этапы, весь транскрипт, источники поручений, ответственных и сроки.
+5. Для assignee=null UI показывает неизвестного ответственного; deadlineText сохраняется при неизвестной дате; needsReview требует человека. Confidence — оценка, не обещание точности.
+6. Проверить многострочное саммари (ключевые исходные цитаты, не свободный пересказ), экспорт полного DOCX.
+7. Повторить с RU/KK/mixed и 30-минутной записью с поручением в конце; проверить ошибку модели, повреждённый файл и превышение лимитов.
 
-### A. Проверка доступного веб-демо
+Тестовые записи: speech/tests/fixtures/{ru,kk,mixed,multi-speaker}.wav, атрибуция/ограничения в speech/tests/fixtures/README.md. Для проверки поручений нужен отдельно смоделированный сценарий с заранее известным содержанием. Демо интерфейса работает без моделей, но не подтверждает качество распознавания.
 
-1. Запустить npm.cmd run dev и открыть http://127.0.0.1:3000.
-2. Нажать «Демоны ашу», убедиться в явной отметке демо.
-3. Проверить 3 участников, 3 поручения, саммари и транскрипт.
-4. Открыть «Тапсырмалар»: у тестирования отсутствуют ответственный и срок, есть отметка проверки.
-5. Включить «Тек тексеру қажет» — 2 результата; поиск «Дана» оставляет 1.
-6. Нажать «Дереккөзді көру» — открываются подтверждающие реплики.
-7. Проверить смену темы и сохранение выбора после обновления страницы.
-8. Скачать DOCX и открыть в Word/LibreOffice; документ помечен как демо, содержит все поручения.
-9. Начать новую жиналыс, выбрать непустой MP3/WAV и отправить: до интеграции ожидается понятная ошибка отсутствующего pipeline, не ложный успех.
-
-### B. Проверка Protocol AI
-
-Без модели:
 ```powershell
-protocol/.venv/Scripts/python -m protocol protocol/fixtures/input.demo.json --validate-only
-protocol/.venv/Scripts/python -m unittest discover -s protocol/tests -v
-```
-
-После запуска Ollama и задания LOCAL_LLM_*:
-```powershell
-protocol/.venv/Scripts/python -m protocol.smoke
-```
-
-Ожидание smoke test: exit code 0, пять поручений, исключённая идея, корректные основные поля, summary; отсутствующие сроки/ответственные не выдуманы. Автор модуля сообщает об успешной проверке на одном RU/KK/mixed fixture. Это не оценка точности на реальных аудиозаписях.
-
-### C. Приёмка сквозного сценария после подключения
-
-Добавить обезличенную или смоделированную тестовую запись RU, KK и смешанную запись. Запустить speech, Ollama, backend-адаптер и UI. Загрузить запись → проверить слова/спикеров → поручения/исполнителей/сроки → источники → summary → DOCX. Проверить неверный файл, недоступную модель, повторный запрос и отсутствие срока. Зафиксировать реальные команды speech и путь к тестовым записям в README после интеграции.
-
-Автоматические frontend-проверки:
-```powershell
+.venv/Scripts/python -m unittest discover -s integration/tests -v
+.venv/Scripts/python -m unittest discover -s protocol/tests -v
 npm.cmd test
-npm.cmd run typecheck
 npm.cmd run build
 ```
+Проверено без весов: 4 интеграционных теста, 25 Protocol AI тестов, 5 frontend/DOCX тестов, build, HTTP 202 → GET failed/MODEL_MISSING через Next.js. Success pipeline тесты используют doubles. Реальные модели и полная установка ML зависимостей пока не проверены на этой машине.
 
-Отдельный lint не настроен. UI-тесты проверяют контракт, ссылки на реплики, неизвестные значения, неверные файлы/ответы и генерацию DOCX.
+## Ограничения и дальнейшая проверка
+Сервер повторно проверяет размер, формат, полную декодируемость и 1800 секунд через speech validator. AI: до 120000 символов/5000 реплик, части с перекрытием до двух реплик. Поздние отмены/далёкие уточнения глобально не сверяются; разные формулировки одной задачи могут остаться.
 
-### Ограничения
-
-Protocol AI принимает до 120000 символов, 5000 реплик и timestamps до 1800 секунд. Транскрипт делится на части до 6000 символов сериализованного JSON с контекстом до двух соседних реплик; слишком длинная реплика отклоняется. До 100 кандидатов проверяется на каждую часть, timeout одного запроса к модели — 600 секунд. Весь транскрипт сохраняется, итоговое саммари объединяет исходные цитаты и может содержать больше пяти реплик. Поздние отмены и далёкие уточнения между частями глобально не сверяются; точные повторы удаляются, разные формулировки одной задачи могут остаться. События on_progress: chunk:N/M, extracting, verifying, summarizing, done; done означает завершение всего протокола, а номер части не является точным процентом готовности. UI ждёт один ответ до 3600 секунд: при интеграции согласовать общий timeout или job/SSE. Отмена браузера сама по себе не останавливает модель. Неоднозначные даты остаются null, confidence — эвристика, не вероятность. Дату и timezone совещания нельзя заменять текущими без основания. Редактирование имени спикера в UI не переназначает ответственного в поручении.
-
-Интеграция и дальнейшее развитие: [docs/TEAM_HANDOFF.md](docs/TEAM_HANDOFF.md), [подробности Protocol AI](docs/handoff/protocol-ai.md).
+«Күтуді тоқтату» останавливает только браузерное ожидание. Server-side отмены нет. Результаты хранятся в памяти до 6 часов, исчезают при перезапуске; аудио удаляется после обработки, но после аварии возможны остатки в системном temp. Общего watchdog и постоянной очереди нет. Эти ограничения, восстановление ожидания и подробная ручная приёмка: [docs/LOCAL_RUN.md](docs/LOCAL_RUN.md).
